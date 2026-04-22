@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest *)",
+      "Bash(mv PLAN.md /tmp/PLAN.md)",
+      "Bash(mv /tmp/PLAN.md .)"
+    ]
+  }
+}
