@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Session {
+  id        Int      @id @default(autoincrement())
+  name      String
+  date      String
+  category  String
+  createdAt DateTime @default(now())
+
+  qrCodes QRCode[]
+  actors  Actor[]
+  scores  Score[]
+  drafts  ScoreDraft[]
+  wrapUps WrapUp[]
+}
+
+model QRCode {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  stage     String
+  sessionId Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id])
+}
+
+model Actor {
+  id             Int      @id @default(autoincrement())
+  auditionNumber String
+  name           String
+  phone          String
+  height         Int
+  weight         Int
+  hasTattoo      Boolean  @default(false)
+  sessionId      Int
+  stage          String
+  checkinTime    DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  session Session      @relation(fields: [sessionId], references: [id])
+  photos  ActorPhoto[]
+  scores  Score[]
+  drafts  ScoreDraft[]
+  wrapUp  WrapUp?
+
+  @@unique([auditionNumber, sessionId, stage])
+}
+
+model ActorPhoto {
+  id        Int      @id @default(autoincrement())
+  actorId   Int
+  type      String   // front_half | left_half | right_half | left_full | right_full | tattoo
+  filePath  String
+  createdAt DateTime @default(now())
+
+  actor Actor @relation(fields: [actorId], references: [id])
+}
+
+model Director {
+  id          Int      @id @default(autoincrement())
+  ssoId       String   @unique
+  displayName String
+  createdAt   DateTime @default(now())
+
+  scores Score[]
+  drafts ScoreDraft[]
+}
+
+model Score {
+  id          Int      @id @default(autoincrement())
+  directorId  Int
+  actorId     Int
+  sessionId   Int
+  stage       String
+  stars       Int      // 1 | 2 | 3
+  house       String?
+  role        String?
+  note        String?
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  director Director @relation(fields: [directorId], references: [id])
+  actor    Actor    @relation(fields: [actorId], references: [id])
+  session  Session  @relation(fields: [sessionId], references: [id])
+
+  @@unique([directorId, actorId, sessionId, stage])
+}
+
+model ScoreDraft {
+  id         Int      @id @default(autoincrement())
+  directorId Int
+  actorId    Int
+  sessionId  Int
+  stage      String
+  data       String   // JSON: { stars, house, role, note }
+  updatedAt  DateTime @updatedAt
+
+  director Director @relation(fields: [directorId], references: [id])
+  actor    Actor    @relation(fields: [actorId], references: [id])
+  session  Session  @relation(fields: [sessionId], references: [id])
+
+  @@unique([directorId, actorId, sessionId, stage])
+}
+
+model WrapUp {
+  id        Int      @id @default(autoincrement())
+  actorId   Int      @unique
+  sessionId Int
+  stage     String
+  house     String?
+  role      String?
+  note      String?
+  action    String?
+  updatedAt DateTime @updatedAt
+
+  actor   Actor   @relation(fields: [actorId], references: [id])
+  session Session @relation(fields: [sessionId], references: [id])
+}
+
+model House {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  roles Role[]
+}
+
+model Role {
+  id      Int    @id @default(autoincrement())
+  houseId Int
+  name    String
+
+  house House @relation(fields: [houseId], references: [id])
+
+  @@unique([houseId, name])
+}
