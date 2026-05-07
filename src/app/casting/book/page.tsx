@@ -3,9 +3,9 @@
 
 import { useState, useMemo } from "react";
 import {
-  BookOpen, X, Pencil, Upload, Play, ChevronDown,
+  BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List, Table2,
-  Search, RotateCcw, Eye, Users, Film,
+  Search, RotateCcw, Eye, Users, Film, Plus,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -14,6 +14,24 @@ interface MediaFile {
   type: "photo" | "video";
   url: string;
   duration?: string;
+}
+
+interface SwingRecord {
+  id: string;
+  showName: string;
+  roleName: string;
+  note: string;
+  createdAt: string;
+  status: "active" | "inactive";
+}
+
+interface EventRecord {
+  id: string;
+  eventName: string;
+  roleName: string;
+  startDate: string;
+  endDate: string;
+  status: "active" | "inactive";
 }
 
 interface Actor {
@@ -30,6 +48,8 @@ interface Actor {
   contractEndDate?: string;
   skillsets?: string[];
   mediaFiles?: MediaFile[];
+  swingRecords?: SwingRecord[];
+  eventRecords?: EventRecord[];
 }
 
 interface Role { id: string; name: string; homeActors: Actor[]; swingActors: Actor[] }
@@ -74,6 +94,11 @@ const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "me
 const ALL_SKILLSETS = ["Acrobatics", "Ballet", "Contemporary", "Hip Hop", "Jazz", "Aerial", "Martial Arts", "Singing", "Stunt", "Character Act", "Puppetry", "Improv"];
 const CONTRACT_DATES = ["2024-11-03", "2025-08-11", "2025-03-22", "2025-06-15", "2026-01-01", "2025-12-31", "2026-03-15", "2025-09-30"];
 
+const SWING_SHOWS = ["UOP", "UCHMMG", "TSMMG", "RPTEA", "PL"];
+const SWING_ROLES = ["Parade Wushu", "Dragon Dance", "Ollivanders", "Raptor Encounter", "Main Stage Cast", "Fan Dance", "Frog Choir", "Stilt Walkers"];
+const EVENT_NAMES = ["Summer Spectacular", "Christmas Parade", "Halloween Night", "Grand Opening Gala", "Anniversary Show", "VIP Preview Night", "Media Day", "Charity Event"];
+const EVENT_ROLE_POOL = ["Lead Performer", "Ensemble", "Character", "Stunt Double", "Aerial Artist", "Host"];
+
 function dHash(n: number): number {
   let x = n ^ (n >>> 16);
   x = Math.imul(x, 0x45d9f3b);
@@ -93,6 +118,43 @@ function genActors(seed: number, count: number): Actor[] {
       height: 162 + (dHash(seed + i + 5) % 24),
       weight: 50 + (dHash(seed + i + 3) % 30),
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
+    };
+  });
+}
+
+function genSwingRecords(seed: number): SwingRecord[] {
+  const count = dHash(seed * 7) % 4;
+  return Array.from({ length: count }, (_, i) => {
+    const h = dHash(seed * 11 + i);
+    const daysAgo = (h % 365) + 30;
+    const date = new Date(Date.now() - daysAgo * 86400000);
+    const notes = ["Primary swing cover", "Emergency cover only", ""];
+    return {
+      id: `sw-${seed}-${i}`,
+      showName: SWING_SHOWS[h % SWING_SHOWS.length],
+      roleName: SWING_ROLES[dHash(seed * 3 + i) % SWING_ROLES.length],
+      note: notes[i % notes.length],
+      createdAt: date.toISOString().split("T")[0],
+      status: (h % 5 === 0 ? "inactive" : "active") as "active" | "inactive",
+    };
+  });
+}
+
+function genEventRecords(seed: number): EventRecord[] {
+  const count = (dHash(seed * 5) % 4) + 1;
+  return Array.from({ length: count }, (_, i) => {
+    const h = dHash(seed * 13 + i);
+    const daysAgoStart = (h % 730) + 60;
+    const duration = (dHash(seed * 19 + i) % 90) + 3;
+    const startMs = Date.now() - daysAgoStart * 86400000;
+    const endMs = startMs + duration * 86400000;
+    return {
+      id: `ev-${seed}-${i}`,
+      eventName: EVENT_NAMES[h % EVENT_NAMES.length],
+      roleName: EVENT_ROLE_POOL[dHash(seed * 7 + i) % EVENT_ROLE_POOL.length],
+      startDate: new Date(startMs).toISOString().split("T")[0],
+      endDate: new Date(endMs).toISOString().split("T")[0],
+      status: (h % 5 === 0 ? "inactive" : "active") as "active" | "inactive",
     };
   });
 }
@@ -181,14 +243,13 @@ function genPerformer(seed: number): Actor {
     contractEndDate: CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length],
     skillsets: [...new Set(skillIndexes.map((i) => ALL_SKILLSETS[i]))],
     mediaFiles,
+    swingRecords: genSwingRecords(seed),
+    eventRecords: genEventRecords(seed),
   };
 }
 
 const PERFORMERS: Actor[] = Array.from({ length: 28 }, (_, i) => genPerformer(i + 1));
 
-const ALL_SHOWS = DATA.flatMap((l) => l.shows);
-function findShow(id: string) { return ALL_SHOWS.find((s) => s.id === id) ?? null; }
-function findRole(showId: string, roleId: string) { return findShow(showId)?.roles.find((r) => r.id === roleId) ?? null; }
 
 // ── Lightbox ───────────────────────────────────────────────────────────────
 
@@ -196,7 +257,7 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
   const [idx, setIdx] = useState(initialIndex);
   const file = files[idx];
   return (
-    <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center" onClick={onClose}>
       <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.max(0, i - 1)); }} disabled={idx === 0}
         className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
         <ArrowUp className="w-5 h-5 -rotate-90" />
@@ -228,32 +289,109 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
   );
 }
 
-// ── Actor Profile Drawer ───────────────────────────────────────────────────
+// ── Actor Detail Drawer (unified view + edit) ──────────────────────────────
 
-function ActorProfileDrawer({ actor, roleLabel, onClose, onEdit }: { actor: Actor; roleLabel: string; onClose: () => void; onEdit: () => void }) {
+function ActorDetailDrawer({
+  actor, roleLabel, onClose, defaultMode = "view",
+}: {
+  actor: Actor; roleLabel: string; onClose: () => void; defaultMode?: "view" | "edit";
+}) {
+  const [mode, setMode] = useState<"view" | "edit">(defaultMode);
+  const [collapsed, setCollapsed] = useState({ swing: true, event: true, portfolio: true });
+
+  // Basic info edit state
+  const [name, setName] = useState(actor.name);
+  const [nationality, setNationality] = useState(actor.nationality);
+  const [height, setHeight] = useState(String(actor.height));
+  const [weight, setWeight] = useState(String(actor.weight));
+
+  // Swing records state
+  const [swingRecords, setSwingRecords] = useState<SwingRecord[]>(actor.swingRecords ?? []);
+  const [addingSwing, setAddingSwing] = useState(false);
+  const [editingSwingId, setEditingSwingId] = useState<string | null>(null);
+  const [swingForm, setSwingForm] = useState({ showName: "", roleName: "", note: "" });
+  const [swingEditForm, setSwingEditForm] = useState({ showName: "", roleName: "" });
+
+  // Event records state
+  const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
+  const [addingEvent, setAddingEvent] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventForm, setEventForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
+  const [eventEditForm, setEventEditForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
+
+  // Portfolio state
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
-  const files = actor.mediaFiles ?? [];
+
+  const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
+
+  const sortedSwing = [...swingRecords].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const sortedEvents = [...eventRecords].sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const activeSwingCount = swingRecords.filter((r) => r.status === "active").length;
+  const activeEventCount = eventRecords.filter((r) => r.status === "active").length;
+
+  function addSwing() {
+    if (!swingForm.showName || !swingForm.roleName) return;
+    setSwingRecords((p) => [{
+      id: `sw-${Date.now()}`, ...swingForm,
+      createdAt: new Date().toISOString().split("T")[0], status: "active",
+    }, ...p]);
+    setSwingForm({ showName: "", roleName: "", note: "" });
+    setAddingSwing(false);
+  }
+
+  function saveSwingEdit(id: string) {
+    setSwingRecords((p) => p.map((r) => r.id === id ? { ...r, ...swingEditForm } : r));
+    setEditingSwingId(null);
+  }
+
+  function addEvent() {
+    if (!eventForm.eventName || !eventForm.startDate) return;
+    setEventRecords((p) => [{
+      id: `ev-${Date.now()}`, ...eventForm, status: "active",
+    }, ...p]);
+    setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" });
+    setAddingEvent(false);
+  }
+
+  function saveEventEdit(id: string) {
+    setEventRecords((p) => p.map((r) => r.id === id ? { ...r, ...eventEditForm } : r));
+    setEditingEventId(null);
+  }
+
+  const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300";
+  const labelCls = "block text-xs text-gray-400 mb-1";
 
   return (
     <>
-      {lightboxIdx !== null && <Lightbox files={files} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />}
+      {lightboxIdx !== null && (
+        <Lightbox files={mediaFiles} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
+      )}
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[420px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] bg-white shadow-2xl flex flex-col">
+
         {/* Photo header */}
-        <div className="relative flex-shrink-0 h-64 bg-gray-100">
+        <div className="relative flex-shrink-0 h-52 bg-gray-100">
           <img src={actor.photoUrl} alt={actor.name} className="w-full h-full object-cover object-top" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-          <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
+          <button onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
-          <div className="absolute bottom-4 left-5 right-5">
+          <div className="absolute bottom-4 left-5 right-16">
             <p className="text-xs text-gray-300 mb-0.5">{roleLabel}</p>
-            <p className="text-xl font-bold text-white leading-tight">{actor.name}</p>
+            <p className="text-xl font-bold text-white leading-tight truncate">{actor.name}</p>
+          </div>
+          <div className="absolute bottom-4 right-5">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${mode === "edit" ? "bg-amber-400 text-amber-900" : "bg-white/20 text-white"}`}>
+              {mode === "edit" ? "Editing" : "View"}
+            </span>
           </div>
         </div>
 
-        {/* Content */}
+        {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
+
           {/* Stats row */}
           <div className="flex border-b border-gray-100">
             {[
@@ -262,14 +400,41 @@ function ActorProfileDrawer({ actor, roleLabel, onClose, onEdit }: { actor: Acto
               { label: "Height", value: `${actor.height} cm` },
               { label: "Weight", value: `${actor.weight} kg` },
             ].map(({ label, value, mono }) => (
-              <div key={label} className="flex-1 px-4 py-3 text-center border-r border-gray-100 last:border-r-0">
+              <div key={label} className="flex-1 px-2 py-3 text-center border-r border-gray-100 last:border-r-0">
                 <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                <p className={`text-sm font-semibold text-gray-800 ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
+                <p className={`text-xs font-semibold text-gray-800 leading-snug ${mono ? "font-mono" : ""}`}>{value}</p>
               </div>
             ))}
           </div>
 
-          {/* Home show */}
+          {/* Edit mode: basic info fields */}
+          {mode === "edit" && (
+            <div className="px-5 py-4 border-b border-gray-100 bg-amber-50/40">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Basic Info</p>
+              <div className="space-y-3">
+                <div>
+                  <label className={labelCls}>Full Name</label>
+                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className={labelCls}>Nationality</label>
+                    <input value={nationality} onChange={(e) => setNationality(e.target.value)} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Height (cm)</label>
+                    <input type="number" value={height} onChange={(e) => setHeight(e.target.value)} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Weight (kg)</label>
+                    <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} className={inputCls} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Home Show */}
           {actor.homeShow && (
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
               <div>
@@ -297,89 +462,346 @@ function ActorProfileDrawer({ actor, roleLabel, onClose, onEdit }: { actor: Acto
             </div>
           )}
 
-          {/* Media gallery */}
-          {files.length > 0 && (
-            <div className="px-5 py-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Media</p>
-              <div className="grid grid-cols-3 gap-2">
-                {files.map((f, i) => (
-                  <button key={i} onClick={() => setLightboxIdx(i)}
-                    className="relative rounded-xl overflow-hidden bg-gray-100 hover:opacity-90 transition-opacity aspect-[3/4]">
-                    <img src={f.url} alt="" className="w-full h-full object-cover object-top" loading="lazy" />
-                    {f.type === "video" && (
-                      <>
-                        <div className="absolute inset-0 bg-black/35" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Play className="w-6 h-6 text-white fill-white" />
-                        </div>
-                        {f.duration && <span className="absolute bottom-1.5 left-1.5 text-xs text-white bg-black/60 px-1 py-0.5 rounded leading-none">{f.duration}</span>}
-                      </>
-                    )}
+          {/* ── Swing Show & Role ── */}
+          <div className="border-b border-gray-100">
+            <div
+              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
+              onClick={() => toggle("swing")}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Swing Show &amp; Role</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{activeSwingCount}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {mode === "edit" && !collapsed.swing && (
+                  <button type="button"
+                    onClick={(e) => { e.stopPropagation(); setAddingSwing(true); setEditingSwingId(null); }}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
+                    <Plus className="w-3.5 h-3.5" />Add
                   </button>
-                ))}
+                )}
+                {collapsed.swing ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
               </div>
             </div>
+
+            {!collapsed.swing && (
+              <div className="px-5 pb-4">
+                {/* Add form */}
+                {addingSwing && (
+                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={labelCls}>Show Name</label>
+                        <input value={swingForm.showName} onChange={(e) => setSwingForm((f) => ({ ...f, showName: e.target.value }))} className={inputCls} placeholder="e.g. UOP" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role Name</label>
+                        <input value={swingForm.roleName} onChange={(e) => setSwingForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Fan Dance" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Note</label>
+                      <input value={swingForm.note} onChange={(e) => setSwingForm((f) => ({ ...f, note: e.target.value }))} className={inputCls} placeholder="Optional note" />
+                    </div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setAddingSwing(false); setSwingForm({ showName: "", roleName: "", note: "" }); }}
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                      <button onClick={addSwing}
+                        className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">Save</button>
+                    </div>
+                  </div>
+                )}
+
+                {sortedSwing.length === 0 && !addingSwing && (
+                  <p className="text-xs text-gray-300 py-4 text-center">No swing records</p>
+                )}
+
+                <div className="space-y-2">
+                  {sortedSwing.map((rec) => (
+                    <div key={rec.id}
+                      className={`rounded-xl border overflow-hidden ${rec.status === "inactive" ? "border-gray-100 opacity-55" : "border-gray-200"}`}>
+                      {editingSwingId === rec.id ? (
+                        <div className="p-3 bg-amber-50 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className={labelCls}>Show Name</label>
+                              <input value={swingEditForm.showName}
+                                onChange={(e) => setSwingEditForm((f) => ({ ...f, showName: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                            <div>
+                              <label className={labelCls}>Role Name</label>
+                              <input value={swingEditForm.roleName}
+                                onChange={(e) => setSwingEditForm((f) => ({ ...f, roleName: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 justify-end pt-1">
+                            <button onClick={() => setEditingSwingId(null)}
+                              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                            <button onClick={() => saveSwingEdit(rec.id)}
+                              className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">Save</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-semibold text-gray-900">{rec.showName}</span>
+                                <span className="text-xs text-gray-300">/</span>
+                                <span className="text-xs font-medium text-indigo-600">{rec.roleName}</span>
+                              </div>
+                              {rec.note && <p className="text-xs text-gray-400 mt-0.5 truncate">{rec.note}</p>}
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-xs text-gray-400">{rec.createdAt}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                                  {rec.status === "active" ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+                            </div>
+                            {mode === "edit" && rec.status === "active" && (
+                              <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                                <button
+                                  onClick={() => { setEditingSwingId(rec.id); setSwingEditForm({ showName: rec.showName, roleName: rec.roleName }); }}
+                                  className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded hover:bg-gray-100 font-medium transition-colors">
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => setSwingRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
+                                  className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 font-medium transition-colors">
+                                  Inactive
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Event Experience ── */}
+          <div className="border-b border-gray-100">
+            <div
+              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
+              onClick={() => toggle("event")}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Event Experience</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{activeEventCount}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {mode === "edit" && !collapsed.event && (
+                  <button type="button"
+                    onClick={(e) => { e.stopPropagation(); setAddingEvent(true); setEditingEventId(null); }}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
+                    <Plus className="w-3.5 h-3.5" />Add
+                  </button>
+                )}
+                {collapsed.event ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+              </div>
+            </div>
+
+            {!collapsed.event && (
+              <div className="px-5 pb-4">
+                {/* Add form */}
+                {addingEvent && (
+                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="col-span-2">
+                        <label className={labelCls}>Event Name</label>
+                        <input value={eventForm.eventName} onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value }))} className={inputCls} placeholder="e.g. Summer Spectacular" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className={labelCls}>Role Name</label>
+                        <input value={eventForm.roleName} onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Lead Performer" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Start Date</label>
+                        <input type="date" value={eventForm.startDate} onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>End Date</label>
+                        <input type="date" value={eventForm.endDate} onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                      <button onClick={addEvent}
+                        className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">Save</button>
+                    </div>
+                  </div>
+                )}
+
+                {sortedEvents.length === 0 && !addingEvent && (
+                  <p className="text-xs text-gray-300 py-4 text-center">No event records</p>
+                )}
+
+                <div className="space-y-2">
+                  {sortedEvents.map((rec) => (
+                    <div key={rec.id}
+                      className={`rounded-xl border overflow-hidden ${rec.status === "inactive" ? "border-gray-100 opacity-55" : "border-gray-200"}`}>
+                      {editingEventId === rec.id ? (
+                        <div className="p-3 bg-amber-50 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2">
+                              <label className={labelCls}>Event Name</label>
+                              <input value={eventEditForm.eventName}
+                                onChange={(e) => setEventEditForm((f) => ({ ...f, eventName: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                            <div className="col-span-2">
+                              <label className={labelCls}>Role Name</label>
+                              <input value={eventEditForm.roleName}
+                                onChange={(e) => setEventEditForm((f) => ({ ...f, roleName: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                            <div>
+                              <label className={labelCls}>Start Date</label>
+                              <input type="date" value={eventEditForm.startDate}
+                                onChange={(e) => setEventEditForm((f) => ({ ...f, startDate: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                            <div>
+                              <label className={labelCls}>End Date</label>
+                              <input type="date" value={eventEditForm.endDate}
+                                onChange={(e) => setEventEditForm((f) => ({ ...f, endDate: e.target.value }))}
+                                className={inputCls} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 justify-end pt-1">
+                            <button onClick={() => setEditingEventId(null)}
+                              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                            <button onClick={() => saveEventEdit(rec.id)}
+                              className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">Save</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
+                                <span className={`ml-2 flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                                  {rec.status === "active" ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-indigo-600 mt-0.5">{rec.roleName}</p>
+                              <p className="text-xs text-gray-400 mt-1">{rec.startDate} → {rec.endDate}</p>
+                            </div>
+                            {mode === "edit" && rec.status === "active" && (
+                              <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                                <button
+                                  onClick={() => { setEditingEventId(rec.id); setEventEditForm({ eventName: rec.eventName, roleName: rec.roleName, startDate: rec.startDate, endDate: rec.endDate }); }}
+                                  className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded hover:bg-gray-100 font-medium transition-colors">
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
+                                  className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 font-medium transition-colors">
+                                  Inactive
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Portfolio ── */}
+          <div className="border-b border-gray-100">
+            <div
+              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
+              onClick={() => toggle("portfolio")}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Portfolio</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{mediaFiles.length}</span>
+              </div>
+              {collapsed.portfolio ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+            </div>
+
+            {!collapsed.portfolio && (
+              <div className="px-5 pb-4">
+                {mediaFiles.length === 0 && mode === "view" && (
+                  <p className="text-xs text-gray-300 py-4 text-center">No media files</p>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  {mediaFiles.map((f, i) => (
+                    <div key={i} className="relative rounded-xl overflow-hidden bg-gray-100 aspect-[3/4] group/media">
+                      <img src={f.url} alt="" className="w-full h-full object-cover object-top" loading="lazy" />
+                      {f.type === "video" && (
+                        <>
+                          <div className="absolute inset-0 bg-black/35" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Play className="w-5 h-5 text-white fill-white" />
+                          </div>
+                          {f.duration && (
+                            <span className="absolute bottom-1.5 left-1.5 text-xs text-white bg-black/60 px-1 py-0.5 rounded leading-none">
+                              {f.duration}
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {mode === "view" ? (
+                        <button onClick={() => setLightboxIdx(i)} className="absolute inset-0 opacity-0 group-hover/media:opacity-100 bg-black/20 transition-opacity flex items-center justify-center">
+                          <Eye className="w-5 h-5 text-white drop-shadow" />
+                        </button>
+                      ) : (
+                        <button onClick={() => setMediaFiles((p) => p.filter((_, idx) => idx !== i))}
+                          className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/media:opacity-100">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {mode === "edit" && (
+                    <div className="rounded-xl border-2 border-dashed border-gray-200 aspect-[3/4] flex flex-col items-center justify-center gap-1.5 text-gray-300 hover:border-indigo-300 hover:text-indigo-400 transition-colors cursor-pointer">
+                      <Plus className="w-5 h-5" />
+                      <span className="text-xs font-medium">Add</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 px-5 py-4 flex gap-3 flex-shrink-0">
+          {mode === "view" ? (
+            <>
+              <button onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+                Close
+              </button>
+              <button onClick={() => setMode("edit")}
+                className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors flex items-center justify-center gap-1.5">
+                <Pencil className="w-3.5 h-3.5" />Edit
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setMode("view")}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => setMode("view")}
+                className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors">
+                Save
+              </button>
+            </>
           )}
-        </div>
-
-        {/* Footer actions */}
-        <div className="border-t border-gray-100 px-5 py-4 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
-          <button onClick={onEdit} className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors flex items-center justify-center gap-1.5">
-            <Pencil className="w-3.5 h-3.5" />Edit
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ── Edit Drawer ────────────────────────────────────────────────────────────
-
-function EditDrawer({ actor, label, onClose }: { actor: Actor; label: string; onClose: () => void }) {
-  const [name, setName] = useState(actor.name);
-  const [height, setHeight] = useState(String(actor.height));
-  const [weight, setWeight] = useState(String(actor.weight));
-  const [nationality, setNationality] = useState(actor.nationality);
-
-  return (
-    <>
-      <div className="fixed inset-0 z-[55] bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-[60] w-full max-w-sm bg-white shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div>
-            <h3 className="font-semibold text-gray-900">Edit Performer</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{label}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-700">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div className="flex gap-4 items-start">
-            <img src={actor.photoUrl} alt={actor.name} className="w-20 h-24 object-cover object-top rounded-xl flex-shrink-0" />
-            <div><p className="text-xs text-gray-400 mb-0.5">SSO ID</p><p className="font-mono text-sm text-gray-800">{actor.ssoId}</p></div>
-          </div>
-          {[["Name", name, setName], ["Nationality", nationality, setNationality]].map(([lbl, val, setter]) => (
-            <div key={lbl as string}>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{lbl as string}</label>
-              <input value={val as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400" />
-            </div>
-          ))}
-          <div className="grid grid-cols-2 gap-3">
-            {[["Height (cm)", height, setHeight], ["Weight (kg)", weight, setWeight]].map(([lbl, val, setter]) => (
-              <div key={lbl as string}>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">{lbl as string}</label>
-                <input type="number" value={val as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="border-t border-gray-100 px-5 py-4 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors">Save</button>
         </div>
       </div>
     </>
@@ -493,16 +915,21 @@ function CastDialog({ show, role, onClose }: { show: Show; role: Role; onClose: 
 
 function PerformerCard({ actor, index, type }: { actor: Actor; index: number; type: "home" | "swing" }) {
   const label = type === "home" ? `Home #${index + 1}` : `Swing #${index + 1}`;
-  const [showProfile, setShowProfile] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
+
+  function openView() { setDrawerMode("view"); setOpen(true); }
+  function openEdit() { setDrawerMode("edit"); setOpen(true); }
 
   return (
     <>
-      {showProfile && !showEdit && (
-        <ActorProfileDrawer actor={actor} roleLabel={label} onClose={() => setShowProfile(false)} onEdit={() => { setShowProfile(false); setShowEdit(true); }} />
+      {open && (
+        <ActorDetailDrawer
+          actor={actor} roleLabel={label}
+          onClose={() => setOpen(false)}
+          defaultMode={drawerMode}
+        />
       )}
-      {showEdit && <EditDrawer actor={actor} label={label} onClose={() => setShowEdit(false)} />}
-
       <div className="group relative bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
         {/* Position badge */}
         <div className="absolute top-2 left-2 z-10">
@@ -512,15 +939,14 @@ function PerformerCard({ actor, index, type }: { actor: Actor; index: number; ty
         </div>
 
         {/* Edit button */}
-        <button onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
+        <button onClick={(e) => { e.stopPropagation(); openEdit(); }}
           className="absolute top-2 right-2 z-10 w-6 h-6 bg-black/30 hover:bg-black/50 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
           <Pencil className="w-3 h-3" />
         </button>
 
         {/* Photo */}
-        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => setShowProfile(true)}>
+        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={openView}>
           <img src={actor.photoUrl} alt={actor.name} className="absolute inset-0 w-full h-full object-cover object-top" loading="lazy" />
-          {/* Hover overlay */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
             <div className="opacity-0 group-hover:opacity-100 transition-opacity w-8 h-8 bg-white/90 rounded-full flex items-center justify-center shadow">
               <Eye className="w-4 h-4 text-gray-700" />
@@ -568,7 +994,6 @@ function CardView({
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-6 pt-5 pb-6">
-        {/* Role header */}
         <div className="flex items-center justify-between mb-5">
           <div>
             <p className="text-xs text-gray-400 mb-0.5">{selectedShow.name}</p>
@@ -580,7 +1005,6 @@ function CardView({
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-6">
           {(["home", "swing"] as const).map((t) => {
             const count = t === "home" ? selectedRole.homeActors.length : selectedRole.swingActors.length;
@@ -596,7 +1020,6 @@ function CardView({
           })}
         </div>
 
-        {/* Grid */}
         {actors.length === 0 ? (
           <p className="text-sm text-gray-300 py-8 text-center">No {castTab === "home" ? "home" : "swing"} cast assigned</p>
         ) : (
@@ -627,7 +1050,6 @@ function RosterView({ show, onRoleClick }: { show: Show | null; onRoleClick: (ro
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-6 pt-5 pb-6">
-        {/* Show header */}
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-lg font-bold text-gray-900">{show.name}</h2>
@@ -635,11 +1057,9 @@ function RosterView({ show, onRoleClick }: { show: Show | null; onRoleClick: (ro
           </div>
         </div>
 
-        {/* Roles table */}
         <div className="space-y-3">
           {show.roles.map((role) => (
             <div key={role.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              {/* Role row */}
               <div className="flex items-center gap-4 px-5 py-3.5 border-b border-gray-50">
                 <div className="flex-1 min-w-0">
                   <button onClick={() => onRoleClick(role.id)} className="text-sm font-semibold text-gray-900 hover:text-indigo-600 transition-colors text-left">
@@ -657,8 +1077,6 @@ function RosterView({ show, onRoleClick }: { show: Show | null; onRoleClick: (ro
                   </span>
                 </div>
               </div>
-
-              {/* Photo strip — home cast preview */}
               <div className="px-5 py-3 flex items-center gap-2">
                 <div className="flex -space-x-2">
                   {role.homeActors.slice(0, 10).map((a, i) => (
@@ -702,8 +1120,8 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
 function ListView({ onUpload }: { onUpload: () => void }) {
   const [sortKey, setSortKey] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [profileActor, setProfileActor] = useState<Actor | null>(null);
-  const [editActor, setEditActor] = useState<Actor | null>(null);
+  const [drawerActor, setDrawerActor] = useState<Actor | null>(null);
+  const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
   const [q, setQ] = useState("");
   const [filterShow, setFilterShow] = useState("");
   const [filterRole, setFilterRole] = useState("");
@@ -716,6 +1134,9 @@ function ListView({ onUpload }: { onUpload: () => void }) {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setSortDir("asc"); }
   }
+
+  function openView(actor: Actor) { setDrawerActor(actor); setDrawerMode("view"); }
+  function openEdit(actor: Actor) { setDrawerActor(actor); setDrawerMode("edit"); }
 
   const filtered = useMemo(() => {
     let result = PERFORMERS;
@@ -739,26 +1160,22 @@ function ListView({ onUpload }: { onUpload: () => void }) {
 
   return (
     <div className="flex flex-col h-full">
-      {profileActor && !editActor && (
-        <ActorProfileDrawer actor={profileActor}
-          roleLabel={`${profileActor.homeShow ?? ""} / ${profileActor.homeRole ?? ""}`}
-          onClose={() => setProfileActor(null)}
-          onEdit={() => { setEditActor(profileActor); setProfileActor(null); }} />
-      )}
-      {editActor && (
-        <EditDrawer actor={editActor} label={`${editActor.homeShow ?? ""} / ${editActor.homeRole ?? ""}`} onClose={() => setEditActor(null)} />
+      {drawerActor && (
+        <ActorDetailDrawer
+          actor={drawerActor}
+          roleLabel={`${drawerActor.homeShow ?? ""} / ${drawerActor.homeRole ?? ""}`}
+          onClose={() => setDrawerActor(null)}
+          defaultMode={drawerMode}
+        />
       )}
 
       {/* Filter bar */}
       <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-3 flex-wrap">
-        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="SSO or Name"
             className="h-8 pl-8 pr-3 border border-gray-200 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
         </div>
-
-        {/* Show + Role */}
         <select value={filterShow} onChange={(e) => { setFilterShow(e.target.value); setFilterRole(""); }}
           className="h-8 px-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
           <option value="">All Shows</option>
@@ -774,11 +1191,9 @@ function ListView({ onUpload }: { onUpload: () => void }) {
           <option value="">All Status</option>
           <option>Active</option><option>On Leave</option><option>Terminated</option>
         </select>
-
         <button onClick={reset} className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
-
         <span className="text-xs text-gray-400 ml-auto">{sorted.length} performers</span>
         <button onClick={onUpload} className="h-8 flex items-center gap-1.5 px-3 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors">
           <Upload className="w-3.5 h-3.5" />Add
@@ -835,8 +1250,8 @@ function ListView({ onUpload }: { onUpload: () => void }) {
                 </td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={() => setEditActor(p)} className="text-xs text-gray-500 hover:text-gray-800 font-medium mr-3 transition-colors">Edit</button>
-                  <button onClick={() => setProfileActor(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
+                  <button onClick={() => openEdit(p)} className="text-xs text-gray-500 hover:text-gray-800 font-medium mr-3 transition-colors">Edit</button>
+                  <button onClick={() => openView(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
                 </td>
               </tr>
             ))}
@@ -881,14 +1296,13 @@ export default function CastingBookPage() {
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-5 flex items-center justify-between z-30">
         <div className="flex items-center gap-2.5">
           <BookOpen className="w-5 h-5 text-indigo-500" />
           <span className="font-bold text-gray-900 text-base">Casting Book</span>
         </div>
 
-        {/* Land selector */}
         <div className="flex items-center gap-1 ml-6">
           {DATA.map((l) => (
             <button key={l.id} onClick={() => { setSelectedLandId(l.id); setSelectedShowId(l.shows[0].id); setSelectedRoleId(null); }}
@@ -899,7 +1313,6 @@ export default function CastingBookPage() {
           ))}
         </div>
 
-        {/* View mode toggle */}
         <div className="ml-auto flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
           {([
             ["card", "Cards", LayoutGrid],
@@ -914,10 +1327,9 @@ export default function CastingBookPage() {
         </div>
       </header>
 
-      {/* ── Show & Role nav (hidden in list mode) ── */}
+      {/* Show & Role nav */}
       {viewMode !== "list" && (
         <div className="bg-white border-b border-gray-100 flex-shrink-0">
-          {/* Show tabs */}
           <div className="px-5 pt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             {land.shows.map((show) => {
               const active = show.id === selectedShowId;
@@ -932,10 +1344,8 @@ export default function CastingBookPage() {
             })}
           </div>
 
-          {/* Role pills */}
           {selectedShow && (
             <div className="px-5 pb-3 pt-2 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-              {/* Show-level "All" option for roster view */}
               {viewMode === "roster" && (
                 <button onClick={() => setSelectedRoleId(null)}
                   className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${selectedRoleId === null ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
@@ -958,7 +1368,7 @@ export default function CastingBookPage() {
         </div>
       )}
 
-      {/* ── Main Content ── */}
+      {/* Main Content */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {viewMode === "card" && (
           <CardView
