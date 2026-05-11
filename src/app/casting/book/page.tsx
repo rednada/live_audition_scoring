@@ -4,55 +4,29 @@
 import { useState, useMemo } from "react";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List, Table2,
-  Search, RotateCcw, Eye, Users, Film, Plus,
+  ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
+  Search, RotateCcw, Eye, Users, Film, Plus, Paperclip,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface MediaFile {
-  type: "photo" | "video";
-  url: string;
-  duration?: string;
-}
-
-interface SwingRecord {
-  id: string;
-  showName: string;
-  roleName: string;
-  note: string;
-  createdAt: string;
-  status: "active" | "inactive";
-}
-
-interface EventRecord {
-  id: string;
-  eventName: string;
-  roleName: string;
-  startDate: string;
-  endDate: string;
-  status: "active" | "inactive";
-}
+interface MediaFile { type: "photo" | "video"; url: string; duration?: string }
+interface SwingRecord { id: string; showName: string; roleName: string; note: string; createdAt: string; status: "active" | "inactive" }
+interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
+interface Measurements { height: number; weight: number; chest: number; waist: number; hip: number; inseam: number; shoeSize: number }
+interface Attachment { id: string; name: string; fileType: string }
 
 interface Actor {
-  id: number;
-  ssoId: string;
-  name: string;
-  nationality: string;
-  flag: string;
-  height: number;
-  weight: number;
-  photoUrl: string;
-  homeShow?: string;
-  homeRole?: string;
-  contractEndDate?: string;
+  id: number; ssoId: string; name: string; nationality: string; flag: string;
+  height: number; weight: number; photoUrl: string;
+  homeShow?: string; homeRole?: string; contractEndDate?: string;
   skillsets?: string[];
-  mediaFiles?: MediaFile[];
-  swingRecords?: SwingRecord[];
-  eventRecords?: EventRecord[];
+  mediaFiles?: MediaFile[]; swingRecords?: SwingRecord[]; eventRecords?: EventRecord[];
+  measurements?: Measurements; attachments?: Attachment[];
 }
 
-interface Role { id: string; name: string; homeActors: Actor[]; swingActors: Actor[] }
+interface Role { id: string; name: string; headCount: number; homeActors: Actor[]; swingActors: Actor[] }
 interface Show { id: string; name: string; roles: Role[] }
 interface Land { id: string; label: string; shows: Show[] }
 
@@ -93,11 +67,11 @@ const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "me
 
 const ALL_SKILLSETS = ["Acrobatics", "Ballet", "Contemporary", "Hip Hop", "Jazz", "Aerial", "Martial Arts", "Singing", "Stunt", "Character Act", "Puppetry", "Improv"];
 const CONTRACT_DATES = ["2024-11-03", "2025-08-11", "2025-03-22", "2025-06-15", "2026-01-01", "2025-12-31", "2026-03-15", "2025-09-30"];
-
 const SWING_SHOWS = ["UOP", "UCHMMG", "TSMMG", "RPTEA", "PL"];
 const SWING_ROLES = ["Parade Wushu", "Dragon Dance", "Ollivanders", "Raptor Encounter", "Main Stage Cast", "Fan Dance", "Frog Choir", "Stilt Walkers"];
 const EVENT_NAMES = ["Summer Spectacular", "Christmas Parade", "Halloween Night", "Grand Opening Gala", "Anniversary Show", "VIP Preview Night", "Media Day", "Charity Event"];
 const EVENT_ROLE_POOL = ["Lead Performer", "Ensemble", "Character", "Stunt Double", "Aerial Artist", "Host"];
+const ATTACHMENT_NAMES = ["Resume_2024.pdf", "Headshot_2023.pdf", "Demo_Reel.mp4", "Contract.pdf", "Portfolio.pdf"];
 
 function dHash(n: number): number {
   let x = n ^ (n >>> 16);
@@ -106,18 +80,42 @@ function dHash(n: number): number {
   return Math.abs(x);
 }
 
+function genMeasurements(seed: number, height: number, weight: number): Measurements {
+  const h = dHash(seed * 23);
+  return {
+    height, weight,
+    chest: 78 + (h % 22),
+    waist: 58 + (dHash(seed * 7) % 22),
+    hip: 82 + (dHash(seed * 11) % 18),
+    inseam: 68 + (dHash(seed * 13) % 15),
+    shoeSize: 36 + (dHash(seed * 17) % 10),
+  };
+}
+
+function genAttachments(seed: number): Attachment[] {
+  const count = dHash(seed * 29) % 3;
+  return Array.from({ length: count }, (_, i) => ({
+    id: `att-${seed}-${i}`,
+    name: ATTACHMENT_NAMES[dHash(seed * 3 + i) % ATTACHMENT_NAMES.length],
+    fileType: ATTACHMENT_NAMES[dHash(seed * 3 + i) % ATTACHMENT_NAMES.length].endsWith(".mp4") ? "video" : "pdf",
+  }));
+}
+
 function genActors(seed: number, count: number): Actor[] {
   return Array.from({ length: count }, (_, i) => {
     const h = dHash(seed * 31 + i * 17);
     const pool = ACTOR_POOL[h % ACTOR_POOL.length];
     const photoNum = (dHash(seed * 13 + i * 7) % 70) + 1;
+    const height = 162 + (dHash(seed + i + 5) % 24);
+    const weight = 50 + (dHash(seed + i + 3) % 30);
     return {
       id: seed * 100 + i,
       ssoId: `${100000 + (dHash(seed * 5 + i) % 900000)}`,
       name: pool.name, nationality: pool.nationality, flag: pool.flag,
-      height: 162 + (dHash(seed + i + 5) % 24),
-      weight: 50 + (dHash(seed + i + 3) % 30),
+      height, weight,
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
+      measurements: genMeasurements(seed * 100 + i, height, weight),
+      attachments: genAttachments(seed * 100 + i),
     };
   });
 }
@@ -159,65 +157,69 @@ function genEventRecords(seed: number): EventRecord[] {
   });
 }
 
+function makeRole(id: string, name: string, homeSeed: number, homeCount: number, swingSeed: number, swingCount: number): Role {
+  const vacancy = dHash(homeSeed * 37) % 6;
+  return {
+    id, name,
+    headCount: homeCount + vacancy,
+    homeActors: genActors(homeSeed, homeCount),
+    swingActors: genActors(swingSeed, swingCount),
+  };
+}
+
 const DATA: Land[] = [{
   id: "ftp", label: "Full Time Performer",
   shows: [
     { id: "uop", name: "UOP", roles: [
-      { id: "uop-pw", name: "Parade Wushu", homeActors: genActors(101, 5), swingActors: genActors(102, 2) },
-      { id: "uop-pv", name: "Parade Viper", homeActors: genActors(103, 8), swingActors: genActors(104, 3) },
-      { id: "uop-dragon", name: "Dragon Dance", homeActors: genActors(105, 12), swingActors: genActors(106, 4) },
-      { id: "uop-acrobat", name: "Acrobat Troupe", homeActors: genActors(107, 10), swingActors: genActors(108, 3) },
-      { id: "uop-fan", name: "Fan Dance", homeActors: genActors(109, 20), swingActors: genActors(110, 5) },
-      { id: "uop-drum", name: "Drum Corps", homeActors: genActors(111, 15), swingActors: genActors(112, 4) },
-      { id: "uop-lion", name: "Lion Dance", homeActors: genActors(113, 8), swingActors: genActors(114, 2) },
-      { id: "uop-ribbon", name: "Ribbon Ensemble", homeActors: genActors(115, 18), swingActors: genActors(116, 5) },
-      { id: "uop-stilt", name: "Stilt Walkers", homeActors: genActors(117, 6), swingActors: genActors(118, 2) },
-      { id: "uop-float", name: "Float Performers", homeActors: genActors(119, 57), swingActors: genActors(120, 12) },
+      makeRole("uop-pw", "Parade Wushu", 101, 5, 102, 2),
+      makeRole("uop-pv", "Parade Viper", 103, 8, 104, 3),
+      makeRole("uop-dragon", "Dragon Dance", 105, 12, 106, 4),
+      makeRole("uop-acrobat", "Acrobat Troupe", 107, 10, 108, 3),
+      makeRole("uop-fan", "Fan Dance", 109, 20, 110, 5),
+      makeRole("uop-drum", "Drum Corps", 111, 15, 112, 4),
+      makeRole("uop-lion", "Lion Dance", 113, 8, 114, 2),
+      makeRole("uop-ribbon", "Ribbon Ensemble", 115, 18, 116, 5),
+      makeRole("uop-stilt", "Stilt Walkers", 117, 6, 118, 2),
+      makeRole("uop-float", "Float Performers", 119, 57, 120, 12),
     ]},
     { id: "uchmmg", name: "UCHMMG", roles: [
-      { id: "uchmmg-ollivanders", name: "Ollivanders", homeActors: genActors(201, 16), swingActors: genActors(202, 3) },
-      { id: "uchmmg-conductor", name: "Conductor", homeActors: genActors(203, 3), swingActors: genActors(204, 1) },
-      { id: "uchmmg-triwizard", name: "Triwizard Spirit Rally", homeActors: genActors(205, 18), swingActors: genActors(206, 4) },
-      { id: "uchmmg-frog", name: "Frog Choir", homeActors: genActors(207, 9), swingActors: genActors(208, 2) },
-      { id: "uchmmg-wand", name: "Wand Ceremony", homeActors: genActors(209, 9), swingActors: genActors(210, 2) },
+      makeRole("uchmmg-ollivanders", "Ollivanders", 201, 16, 202, 3),
+      makeRole("uchmmg-conductor", "Conductor", 203, 3, 204, 1),
+      makeRole("uchmmg-triwizard", "Triwizard Spirit Rally", 205, 18, 206, 4),
+      makeRole("uchmmg-frog", "Frog Choir", 207, 9, 208, 2),
+      makeRole("uchmmg-wand", "Wand Ceremony", 209, 9, 210, 2),
     ]},
     { id: "tsmmg", name: "TSMMG", roles: [
-      { id: "tsmmg-raptor", name: "Raptor Encounter", homeActors: genActors(301, 31), swingActors: genActors(302, 8) },
-      { id: "tsmmg-tf", name: "Transformers", homeActors: genActors(303, 23), swingActors: genActors(304, 6) },
-      { id: "tsmmg-po", name: "Po Live", homeActors: genActors(305, 4), swingActors: genActors(306, 1) },
-      { id: "tsmmg-baby", name: "Baby Raptor", homeActors: genActors(307, 3), swingActors: genActors(308, 1) },
-      { id: "tsmmg-veloci", name: "Velocicoaster Crew", homeActors: genActors(309, 10), swingActors: genActors(310, 3) },
+      makeRole("tsmmg-raptor", "Raptor Encounter", 301, 31, 302, 8),
+      makeRole("tsmmg-tf", "Transformers", 303, 23, 304, 6),
+      makeRole("tsmmg-po", "Po Live", 305, 4, 306, 1),
+      makeRole("tsmmg-baby", "Baby Raptor", 307, 3, 308, 1),
+      makeRole("tsmmg-veloci", "Velocicoaster Crew", 309, 10, 310, 3),
     ]},
     { id: "rptea", name: "RPTEA", roles: [
-      { id: "rptea-knights", name: "Knights Tournament", homeActors: genActors(401, 45), swingActors: genActors(402, 10) },
-      { id: "rptea-dragon", name: "Dragon Show", homeActors: genActors(403, 30), swingActors: genActors(404, 8) },
-      { id: "rptea-royal", name: "Royal Procession", homeActors: genActors(405, 60), swingActors: genActors(406, 15) },
-      { id: "rptea-jester", name: "Jester Performance", homeActors: genActors(407, 20), swingActors: genActors(408, 5) },
-      { id: "rptea-guard", name: "Castle Guard", homeActors: genActors(409, 71), swingActors: genActors(410, 18) },
+      makeRole("rptea-knights", "Knights Tournament", 401, 45, 402, 10),
+      makeRole("rptea-dragon", "Dragon Show", 403, 30, 404, 8),
+      makeRole("rptea-royal", "Royal Procession", 405, 60, 406, 15),
+      makeRole("rptea-jester", "Jester Performance", 407, 20, 408, 5),
+      makeRole("rptea-guard", "Castle Guard", 409, 71, 410, 18),
     ]},
     { id: "pl", name: "PL", roles: [
-      { id: "pl-main", name: "Main Stage Cast", homeActors: genActors(501, 25), swingActors: genActors(502, 6) },
-      { id: "pl-street", name: "Street Performers", homeActors: genActors(503, 20), swingActors: genActors(504, 5) },
-      { id: "pl-parade", name: "Parade Lead", homeActors: genActors(505, 15), swingActors: genActors(506, 4) },
-      { id: "pl-greet", name: "Meet & Greet", homeActors: genActors(507, 11), swingActors: genActors(508, 3) },
+      makeRole("pl-main", "Main Stage Cast", 501, 25, 502, 6),
+      makeRole("pl-street", "Street Performers", 503, 20, 504, 5),
+      makeRole("pl-parade", "Parade Lead", 505, 15, 506, 4),
+      makeRole("pl-greet", "Meet & Greet", 507, 11, 508, 3),
     ]},
   ],
 }];
 
 const SHOW_ROLE_PAIRS = [
-  { showId: "uop", show: "UOP", role: "Parade Wushu" },
-  { showId: "uop", show: "UOP", role: "Parade Viper" },
-  { showId: "uop", show: "UOP", role: "Dragon Dance" },
-  { showId: "uchmmg", show: "UCHMMG", role: "Ollivanders" },
-  { showId: "uchmmg", show: "UCHMMG", role: "Conductor" },
-  { showId: "uchmmg", show: "UCHMMG", role: "Triwizard Spirit Rally" },
-  { showId: "uchmmg", show: "UCHMMG", role: "Frog Choir" },
-  { showId: "tsmmg", show: "TSMMG", role: "Raptor Encounter" },
-  { showId: "tsmmg", show: "TSMMG", role: "Transformers" },
-  { showId: "tsmmg", show: "TSMMG", role: "Po Live" },
-  { showId: "rptea", show: "RPTEA", role: "Knights Tournament" },
-  { showId: "pl", show: "PL", role: "Main Stage Cast" },
-  { showId: "pl", show: "PL", role: "Parade Lead" },
+  { show: "UOP", role: "Parade Wushu" }, { show: "UOP", role: "Parade Viper" },
+  { show: "UOP", role: "Dragon Dance" }, { show: "UCHMMG", role: "Ollivanders" },
+  { show: "UCHMMG", role: "Conductor" }, { show: "UCHMMG", role: "Triwizard Spirit Rally" },
+  { show: "UCHMMG", role: "Frog Choir" }, { show: "TSMMG", role: "Raptor Encounter" },
+  { show: "TSMMG", role: "Transformers" }, { show: "TSMMG", role: "Po Live" },
+  { show: "RPTEA", role: "Knights Tournament" }, { show: "PL", role: "Main Stage Cast" },
+  { show: "PL", role: "Parade Lead" },
 ];
 
 function genPerformer(seed: number): Actor {
@@ -234,22 +236,53 @@ function genPerformer(seed: number): Actor {
       url: `https://randomuser.me/api/portraits/${pool.gender}/${((photoNum + i + 1) % 70) + 1}.jpg`,
     })),
   ];
+  const height = 160 + (dHash(seed) % 26);
+  const weight = 48 + (dHash(seed * 2) % 35);
   return {
     id: 9000 + seed, ssoId: `2001${String(7000 + dHash(seed * 19) % 3000)}`,
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
-    height: 160 + (dHash(seed) % 26), weight: 48 + (dHash(seed * 2) % 35),
+    height, weight,
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
     contractEndDate: CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length],
     skillsets: [...new Set(skillIndexes.map((i) => ALL_SKILLSETS[i]))],
-    mediaFiles,
-    swingRecords: genSwingRecords(seed),
-    eventRecords: genEventRecords(seed),
+    mediaFiles, swingRecords: genSwingRecords(seed), eventRecords: genEventRecords(seed),
+    measurements: genMeasurements(seed, height, weight),
+    attachments: genAttachments(seed),
   };
 }
 
-const PERFORMERS: Actor[] = Array.from({ length: 28 }, (_, i) => genPerformer(i + 1));
+const PERFORMERS: Actor[] = Array.from({ length: 80 }, (_, i) => genPerformer(i + 1));
 
+// ── Shared: Paginator ─────────────────────────────────────────────────────
+
+function Paginator({ page, totalPages, pageSize, pageSizeOptions, totalItems, onPageChange, onPageSizeChange }: {
+  page: number; totalPages: number; pageSize: number; pageSizeOptions: number[];
+  totalItems: number; onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between px-5 py-2.5 border-t border-gray-100 bg-white flex-shrink-0">
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <span>{totalItems} total</span>
+        <select value={pageSize} onChange={(e) => { onPageSizeChange(+e.target.value); onPageChange(1); }}
+          className="h-7 px-1.5 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-200">
+          {pageSizeOptions.map((n) => <option key={n} value={n}>{n} / page</option>)}
+        </select>
+      </div>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPageChange(page - 1)} disabled={page <= 1}
+          className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-xs text-gray-600 px-2 min-w-[60px] text-center">{page} / {Math.max(1, totalPages)}</span>
+        <button onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}
+          className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Lightbox ───────────────────────────────────────────────────────────────
 
@@ -289,74 +322,61 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
   );
 }
 
-// ── Actor Detail Drawer (unified view + edit) ──────────────────────────────
+// ── Actor Detail Drawer ────────────────────────────────────────────────────
 
-function ActorDetailDrawer({
-  actor, roleLabel, onClose, defaultMode = "view",
-}: {
+function ActorDetailDrawer({ actor, roleLabel, onClose, defaultMode = "view" }: {
   actor: Actor; roleLabel: string; onClose: () => void; defaultMode?: "view" | "edit";
 }) {
   const [mode, setMode] = useState<"view" | "edit">(defaultMode);
-  const [collapsed, setCollapsed] = useState({ swing: true, event: true, portfolio: true });
+  const [collapsed, setCollapsed] = useState({
+    skills: false, portfolio: true, showRole: false,
+    measurements: true, event: true, attachments: true,
+  });
 
-  // Basic info edit state
-  const [name, setName] = useState(actor.name);
-  const [nationality, setNationality] = useState(actor.nationality);
-  const [height, setHeight] = useState(String(actor.height));
-  const [weight, setWeight] = useState(String(actor.weight));
+  // Skill tags
+  const [skills, setSkills] = useState<string[]>(actor.skillsets ?? []);
+  function toggleSkill(s: string) {
+    setSkills((p) => p.includes(s) ? p.filter((x) => x !== s) : [...p, s]);
+  }
 
-  // Swing records state
+  // Swing records
   const [swingRecords, setSwingRecords] = useState<SwingRecord[]>(actor.swingRecords ?? []);
   const [addingSwing, setAddingSwing] = useState(false);
-  const [editingSwingId, setEditingSwingId] = useState<string | null>(null);
   const [swingForm, setSwingForm] = useState({ showName: "", roleName: "", note: "" });
-  const [swingEditForm, setSwingEditForm] = useState({ showName: "", roleName: "" });
 
-  // Event records state
+  // Event records
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
   const [addingEvent, setAddingEvent] = useState(false);
-  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [eventForm, setEventForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
-  const [eventEditForm, setEventEditForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
 
-  // Portfolio state
+  // Portfolio
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
-  const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
+  // Measurements (height/weight linked to basic info display)
+  const [meas, setMeas] = useState<Measurements>(
+    actor.measurements ?? { height: actor.height, weight: actor.weight, chest: 85, waist: 65, hip: 90, inseam: 75, shoeSize: 40 }
+  );
 
-  const sortedSwing = [...swingRecords].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const sortedEvents = [...eventRecords].sort((a, b) => b.startDate.localeCompare(a.startDate));
-  const activeSwingCount = swingRecords.filter((r) => r.status === "active").length;
-  const activeEventCount = eventRecords.filter((r) => r.status === "active").length;
+  // Attachments
+  const [attachments, setAttachments] = useState<Attachment[]>(actor.attachments ?? []);
+
+  const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
+  const activeSwing = swingRecords.filter((r) => r.status === "active");
+  const activeEvents = eventRecords.filter((r) => r.status === "active");
 
   function addSwing() {
     if (!swingForm.showName || !swingForm.roleName) return;
-    setSwingRecords((p) => [{
-      id: `sw-${Date.now()}`, ...swingForm,
-      createdAt: new Date().toISOString().split("T")[0], status: "active",
-    }, ...p]);
+    setSwingRecords((p) => [{ id: `sw-${Date.now()}`, ...swingForm, createdAt: new Date().toISOString().split("T")[0], status: "active" }, ...p]);
     setSwingForm({ showName: "", roleName: "", note: "" });
     setAddingSwing(false);
   }
 
-  function saveSwingEdit(id: string) {
-    setSwingRecords((p) => p.map((r) => r.id === id ? { ...r, ...swingEditForm } : r));
-    setEditingSwingId(null);
-  }
-
   function addEvent() {
     if (!eventForm.eventName || !eventForm.startDate) return;
-    setEventRecords((p) => [{
-      id: `ev-${Date.now()}`, ...eventForm, status: "active",
-    }, ...p]);
+    setEventRecords((p) => [{ id: `ev-${Date.now()}`, ...eventForm, status: "active" }, ...p]);
     setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" });
     setAddingEvent(false);
-  }
-
-  function saveEventEdit(id: string) {
-    setEventRecords((p) => p.map((r) => r.id === id ? { ...r, ...eventEditForm } : r));
-    setEditingEventId(null);
   }
 
   const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300";
@@ -371,370 +391,91 @@ function ActorDetailDrawer({
       <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] bg-white shadow-2xl flex flex-col">
 
         {/* Photo header */}
-        <div className="relative flex-shrink-0 h-52 bg-gray-100">
+        <div className="relative flex-shrink-0 h-48 bg-gray-100">
           <img src={actor.photoUrl} alt={actor.name} className="w-full h-full object-cover object-top" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
           <button onClick={onClose}
             className="absolute top-4 right-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
-          <div className="absolute bottom-4 left-5 right-16">
+          <div className="absolute bottom-4 left-5 right-20">
             <p className="text-xs text-gray-300 mb-0.5">{roleLabel}</p>
             <p className="text-xl font-bold text-white leading-tight truncate">{actor.name}</p>
           </div>
-          <div className="absolute bottom-4 right-5">
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${mode === "edit" ? "bg-amber-400 text-amber-900" : "bg-white/20 text-white"}`}>
-              {mode === "edit" ? "Editing" : "View"}
-            </span>
-          </div>
+          {mode === "edit" && (
+            <span className="absolute bottom-5 right-5 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-400 text-amber-900">Editing</span>
+          )}
         </div>
 
-        {/* Scrollable content */}
+        {/* Basic Info — always read-only */}
+        <div className="flex-shrink-0 grid grid-cols-5 border-b border-gray-100">
+          {[
+            { label: "SSO", value: actor.ssoId, mono: true },
+            { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
+            { label: "Height", value: `${meas.height} cm` },
+            { label: "Weight", value: `${meas.weight} kg` },
+            { label: "Contract End", value: actor.contractEndDate ?? "—" },
+          ].map(({ label, value, mono }) => (
+            <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
+              <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
+              <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Scrollable sections */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Stats row */}
-          <div className="flex border-b border-gray-100">
-            {[
-              { label: "SSO", value: actor.ssoId, mono: true },
-              { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
-              { label: "Height", value: `${actor.height} cm` },
-              { label: "Weight", value: `${actor.weight} kg` },
-            ].map(({ label, value, mono }) => (
-              <div key={label} className="flex-1 px-2 py-3 text-center border-r border-gray-100 last:border-r-0">
-                <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                <p className={`text-xs font-semibold text-gray-800 leading-snug ${mono ? "font-mono" : ""}`}>{value}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Edit mode: basic info fields */}
-          {mode === "edit" && (
-            <div className="px-5 py-4 border-b border-gray-100 bg-amber-50/40">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Basic Info</p>
-              <div className="space-y-3">
-                <div>
-                  <label className={labelCls}>Full Name</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className={labelCls}>Nationality</label>
-                    <input value={nationality} onChange={(e) => setNationality(e.target.value)} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Height (cm)</label>
-                    <input type="number" value={height} onChange={(e) => setHeight(e.target.value)} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Weight (kg)</label>
-                    <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} className={inputCls} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Home Show */}
-          {actor.homeShow && (
-            <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Home Show / Role</p>
-                <p className="text-sm font-semibold text-indigo-600">{actor.homeShow} / {actor.homeRole}</p>
-              </div>
-              {actor.contractEndDate && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-400 mb-0.5">Contract End</p>
-                  <p className="text-sm text-gray-700">{actor.contractEndDate}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Skillsets */}
-          {actor.skillsets && actor.skillsets.length > 0 && (
-            <div className="px-5 py-4 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2.5">Skillset</p>
-              <div className="flex flex-wrap gap-1.5">
-                {actor.skillsets.map((s) => (
-                  <span key={s} className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-full font-medium">{s}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Swing Show & Role ── */}
+          {/* ── Skill Tags ── */}
           <div className="border-b border-gray-100">
-            <div
-              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
-              onClick={() => toggle("swing")}
-            >
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("skills")}>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-900">Swing Show &amp; Role</span>
-                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{activeSwingCount}</span>
+                <span className="text-sm font-semibold text-gray-900">Skill Tags</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{skills.length}</span>
               </div>
-              <div className="flex items-center gap-2">
-                {mode === "edit" && !collapsed.swing && (
-                  <button type="button"
-                    onClick={(e) => { e.stopPropagation(); setAddingSwing(true); setEditingSwingId(null); }}
-                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
-                    <Plus className="w-3.5 h-3.5" />Add
-                  </button>
-                )}
-                {collapsed.swing ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
-              </div>
+              {collapsed.skills ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
             </div>
-
-            {!collapsed.swing && (
+            {!collapsed.skills && (
               <div className="px-5 pb-4">
-                {/* Add form */}
-                {addingSwing && (
-                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className={labelCls}>Show Name</label>
-                        <input value={swingForm.showName} onChange={(e) => setSwingForm((f) => ({ ...f, showName: e.target.value }))} className={inputCls} placeholder="e.g. UOP" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Role Name</label>
-                        <input value={swingForm.roleName} onChange={(e) => setSwingForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Fan Dance" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Note</label>
-                      <input value={swingForm.note} onChange={(e) => setSwingForm((f) => ({ ...f, note: e.target.value }))} className={inputCls} placeholder="Optional note" />
-                    </div>
-                    <div className="flex gap-2 justify-end pt-1">
-                      <button onClick={() => { setAddingSwing(false); setSwingForm({ showName: "", roleName: "", note: "" }); }}
-                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
-                      <button onClick={addSwing}
-                        className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">Save</button>
+                {mode === "edit" ? (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2">Click to toggle skills</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ALL_SKILLSETS.map((s) => (
+                        <button key={s} onClick={() => toggleSkill(s)}
+                          className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
+                            skills.includes(s) ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          }`}>
+                          {s}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                )}
-
-                {sortedSwing.length === 0 && !addingSwing && (
-                  <p className="text-xs text-gray-300 py-4 text-center">No swing records</p>
-                )}
-
-                <div className="space-y-2">
-                  {sortedSwing.map((rec) => (
-                    <div key={rec.id}
-                      className={`rounded-xl border overflow-hidden ${rec.status === "inactive" ? "border-gray-100 opacity-55" : "border-gray-200"}`}>
-                      {editingSwingId === rec.id ? (
-                        <div className="p-3 bg-amber-50 space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className={labelCls}>Show Name</label>
-                              <input value={swingEditForm.showName}
-                                onChange={(e) => setSwingEditForm((f) => ({ ...f, showName: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                            <div>
-                              <label className={labelCls}>Role Name</label>
-                              <input value={swingEditForm.roleName}
-                                onChange={(e) => setSwingEditForm((f) => ({ ...f, roleName: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                          </div>
-                          <div className="flex gap-2 justify-end pt-1">
-                            <button onClick={() => setEditingSwingId(null)}
-                              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
-                            <button onClick={() => saveSwingEdit(rec.id)}
-                              className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">Save</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-semibold text-gray-900">{rec.showName}</span>
-                                <span className="text-xs text-gray-300">/</span>
-                                <span className="text-xs font-medium text-indigo-600">{rec.roleName}</span>
-                              </div>
-                              {rec.note && <p className="text-xs text-gray-400 mt-0.5 truncate">{rec.note}</p>}
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <span className="text-xs text-gray-400">{rec.createdAt}</span>
-                                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
-                                  {rec.status === "active" ? "Active" : "Inactive"}
-                                </span>
-                              </div>
-                            </div>
-                            {mode === "edit" && rec.status === "active" && (
-                              <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-                                <button
-                                  onClick={() => { setEditingSwingId(rec.id); setSwingEditForm({ showName: rec.showName, roleName: rec.roleName }); }}
-                                  className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded hover:bg-gray-100 font-medium transition-colors">
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => setSwingRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
-                                  className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 font-medium transition-colors">
-                                  Inactive
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── Event Experience ── */}
-          <div className="border-b border-gray-100">
-            <div
-              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
-              onClick={() => toggle("event")}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-900">Event Experience</span>
-                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{activeEventCount}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {mode === "edit" && !collapsed.event && (
-                  <button type="button"
-                    onClick={(e) => { e.stopPropagation(); setAddingEvent(true); setEditingEventId(null); }}
-                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
-                    <Plus className="w-3.5 h-3.5" />Add
-                  </button>
-                )}
-                {collapsed.event ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
-              </div>
-            </div>
-
-            {!collapsed.event && (
-              <div className="px-5 pb-4">
-                {/* Add form */}
-                {addingEvent && (
-                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="col-span-2">
-                        <label className={labelCls}>Event Name</label>
-                        <input value={eventForm.eventName} onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value }))} className={inputCls} placeholder="e.g. Summer Spectacular" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className={labelCls}>Role Name</label>
-                        <input value={eventForm.roleName} onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Lead Performer" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Start Date</label>
-                        <input type="date" value={eventForm.startDate} onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className={labelCls}>End Date</label>
-                        <input type="date" value={eventForm.endDate} onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} />
-                      </div>
-                    </div>
-                    <div className="flex gap-2 justify-end pt-1">
-                      <button onClick={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
-                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
-                      <button onClick={addEvent}
-                        className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">Save</button>
-                    </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {skills.length === 0
+                      ? <span className="text-xs text-gray-300">No skills added</span>
+                      : skills.map((s) => <span key={s} className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-full font-medium">{s}</span>)
+                    }
                   </div>
                 )}
-
-                {sortedEvents.length === 0 && !addingEvent && (
-                  <p className="text-xs text-gray-300 py-4 text-center">No event records</p>
-                )}
-
-                <div className="space-y-2">
-                  {sortedEvents.map((rec) => (
-                    <div key={rec.id}
-                      className={`rounded-xl border overflow-hidden ${rec.status === "inactive" ? "border-gray-100 opacity-55" : "border-gray-200"}`}>
-                      {editingEventId === rec.id ? (
-                        <div className="p-3 bg-amber-50 space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="col-span-2">
-                              <label className={labelCls}>Event Name</label>
-                              <input value={eventEditForm.eventName}
-                                onChange={(e) => setEventEditForm((f) => ({ ...f, eventName: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                            <div className="col-span-2">
-                              <label className={labelCls}>Role Name</label>
-                              <input value={eventEditForm.roleName}
-                                onChange={(e) => setEventEditForm((f) => ({ ...f, roleName: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                            <div>
-                              <label className={labelCls}>Start Date</label>
-                              <input type="date" value={eventEditForm.startDate}
-                                onChange={(e) => setEventEditForm((f) => ({ ...f, startDate: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                            <div>
-                              <label className={labelCls}>End Date</label>
-                              <input type="date" value={eventEditForm.endDate}
-                                onChange={(e) => setEventEditForm((f) => ({ ...f, endDate: e.target.value }))}
-                                className={inputCls} />
-                            </div>
-                          </div>
-                          <div className="flex gap-2 justify-end pt-1">
-                            <button onClick={() => setEditingEventId(null)}
-                              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
-                            <button onClick={() => saveEventEdit(rec.id)}
-                              className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">Save</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
-                                <span className={`ml-2 flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
-                                  {rec.status === "active" ? "Active" : "Inactive"}
-                                </span>
-                              </div>
-                              <p className="text-xs text-indigo-600 mt-0.5">{rec.roleName}</p>
-                              <p className="text-xs text-gray-400 mt-1">{rec.startDate} → {rec.endDate}</p>
-                            </div>
-                            {mode === "edit" && rec.status === "active" && (
-                              <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                                <button
-                                  onClick={() => { setEditingEventId(rec.id); setEventEditForm({ eventName: rec.eventName, roleName: rec.roleName, startDate: rec.startDate, endDate: rec.endDate }); }}
-                                  className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded hover:bg-gray-100 font-medium transition-colors">
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
-                                  className="text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 font-medium transition-colors">
-                                  Inactive
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>
 
           {/* ── Portfolio ── */}
           <div className="border-b border-gray-100">
-            <div
-              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
-              onClick={() => toggle("portfolio")}
-            >
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("portfolio")}>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-gray-900">Portfolio</span>
                 <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{mediaFiles.length}</span>
               </div>
               {collapsed.portfolio ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
             </div>
-
             {!collapsed.portfolio && (
               <div className="px-5 pb-4">
                 {mediaFiles.length === 0 && mode === "view" && (
-                  <p className="text-xs text-gray-300 py-4 text-center">No media files</p>
+                  <p className="text-xs text-gray-300 py-3 text-center">No media files</p>
                 )}
                 <div className="grid grid-cols-3 gap-2">
                   {mediaFiles.map((f, i) => (
@@ -746,11 +487,7 @@ function ActorDetailDrawer({
                           <div className="absolute inset-0 flex items-center justify-center">
                             <Play className="w-5 h-5 text-white fill-white" />
                           </div>
-                          {f.duration && (
-                            <span className="absolute bottom-1.5 left-1.5 text-xs text-white bg-black/60 px-1 py-0.5 rounded leading-none">
-                              {f.duration}
-                            </span>
-                          )}
+                          {f.duration && <span className="absolute bottom-1.5 left-1.5 text-xs text-white bg-black/60 px-1 py-0.5 rounded leading-none">{f.duration}</span>}
                         </>
                       )}
                       {mode === "view" ? (
@@ -767,11 +504,227 @@ function ActorDetailDrawer({
                   ))}
                   {mode === "edit" && (
                     <div className="rounded-xl border-2 border-dashed border-gray-200 aspect-[3/4] flex flex-col items-center justify-center gap-1.5 text-gray-300 hover:border-indigo-300 hover:text-indigo-400 transition-colors cursor-pointer">
-                      <Plus className="w-5 h-5" />
-                      <span className="text-xs font-medium">Add</span>
+                      <Plus className="w-5 h-5" /><span className="text-xs font-medium">Add</span>
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Show & Role (Home + Swing) ── */}
+          <div className="border-b border-gray-100">
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("showRole")}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Show &amp; Role</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">
+                  {(actor.homeShow ? 1 : 0) + activeSwing.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {mode === "edit" && !collapsed.showRole && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setAddingSwing(true); }}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
+                    <Plus className="w-3.5 h-3.5" />Add Swing
+                  </button>
+                )}
+                {collapsed.showRole ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+              </div>
+            </div>
+            {!collapsed.showRole && (
+              <div className="px-5 pb-4 space-y-2">
+                {/* Home assignment */}
+                {actor.homeShow && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-gray-900">{actor.homeShow}</span>
+                        <span className="text-xs text-gray-300">/</span>
+                        <span className="text-xs font-medium text-indigo-600">{actor.homeRole}</span>
+                      </div>
+                      {actor.contractEndDate && <p className="text-xs text-gray-400 mt-0.5">Expires {actor.contractEndDate}</p>}
+                    </div>
+                    <span className="text-xs px-2 py-0.5 bg-indigo-500 text-white rounded-full font-medium flex-shrink-0">Home</span>
+                  </div>
+                )}
+                {/* Add swing form */}
+                {addingSwing && (
+                  <div className="p-3 bg-amber-50 rounded-xl space-y-2 border border-amber-100">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className={labelCls}>Show</label><input value={swingForm.showName} onChange={(e) => setSwingForm((f) => ({ ...f, showName: e.target.value }))} className={inputCls} placeholder="e.g. UOP" /></div>
+                      <div><label className={labelCls}>Role</label><input value={swingForm.roleName} onChange={(e) => setSwingForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Fan Dance" /></div>
+                    </div>
+                    <div><label className={labelCls}>Note</label><input value={swingForm.note} onChange={(e) => setSwingForm((f) => ({ ...f, note: e.target.value }))} className={inputCls} placeholder="Optional" /></div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setAddingSwing(false); setSwingForm({ showName: "", roleName: "", note: "" }); }}
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                      <button onClick={addSwing}
+                        className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">Save</button>
+                    </div>
+                  </div>
+                )}
+                {/* Swing records */}
+                {swingRecords.map((rec) => (
+                  <div key={rec.id} className={`flex items-center justify-between p-3 rounded-xl border ${rec.status === "inactive" ? "border-gray-100 opacity-50" : "border-amber-100 bg-amber-50"}`}>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-gray-900">{rec.showName}</span>
+                        <span className="text-xs text-gray-300">/</span>
+                        <span className="text-xs font-medium text-amber-700">{rec.roleName}</span>
+                      </div>
+                      {rec.note && <p className="text-xs text-gray-400 mt-0.5">{rec.note}</p>}
+                      <p className="text-xs text-gray-400 mt-0.5">{rec.createdAt}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs px-2 py-0.5 bg-amber-400 text-amber-900 rounded-full font-medium">Swing</span>
+                      {mode === "edit" && rec.status === "active" && (
+                        <button onClick={() => setSwingRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
+                          className="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors">Remove</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {swingRecords.length === 0 && !addingSwing && !actor.homeShow && (
+                  <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Measurements ── */}
+          <div className="border-b border-gray-100">
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("measurements")}>
+              <span className="text-sm font-semibold text-gray-900">Measurements</span>
+              {collapsed.measurements ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+            </div>
+            {!collapsed.measurements && (
+              <div className="px-5 pb-4">
+                {mode === "edit" ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      ["Height (cm)", "height"], ["Weight (kg)", "weight"], ["Chest (cm)", "chest"],
+                      ["Waist (cm)", "waist"], ["Hip (cm)", "hip"], ["Inseam (cm)", "inseam"],
+                      ["Shoe Size (EU)", "shoeSize"],
+                    ] as [string, keyof Measurements][]).map(([lbl, key]) => (
+                      <div key={key}>
+                        <label className={labelCls}>{lbl}</label>
+                        <input type="number" value={meas[key]}
+                          onChange={(e) => setMeas((p) => ({ ...p, [key]: +e.target.value }))}
+                          className={inputCls} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ["Height", `${meas.height} cm`], ["Weight", `${meas.weight} kg`],
+                      ["Chest", `${meas.chest} cm`], ["Waist", `${meas.waist} cm`],
+                      ["Hip", `${meas.hip} cm`], ["Inseam", `${meas.inseam} cm`],
+                      ["Shoe Size", `EU ${meas.shoeSize}`],
+                    ] as [string, string][]).map(([lbl, val]) => (
+                      <div key={lbl} className="bg-gray-50 rounded-lg p-2.5">
+                        <p className="text-[10px] text-gray-400 mb-0.5">{lbl}</p>
+                        <p className="text-xs font-semibold text-gray-800">{val}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Event Experience ── */}
+          <div className="border-b border-gray-100">
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("event")}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Event Experience</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{activeEvents.length}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {mode === "edit" && !collapsed.event && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setAddingEvent(true); }}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors">
+                    <Plus className="w-3.5 h-3.5" />Add
+                  </button>
+                )}
+                {collapsed.event ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+              </div>
+            </div>
+            {!collapsed.event && (
+              <div className="px-5 pb-4 space-y-2">
+                {addingEvent && (
+                  <div className="p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
+                    <div><label className={labelCls}>Event Name</label><input value={eventForm.eventName} onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value }))} className={inputCls} placeholder="e.g. Summer Spectacular" /></div>
+                    <div><label className={labelCls}>Role</label><input value={eventForm.roleName} onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Lead Performer" /></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className={labelCls}>Start Date</label><input type="date" value={eventForm.startDate} onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} /></div>
+                      <div><label className={labelCls}>End Date</label><input type="date" value={eventForm.endDate} onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} /></div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+                      <button onClick={addEvent} className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">Save</button>
+                    </div>
+                  </div>
+                )}
+                {eventRecords.length === 0 && !addingEvent && (
+                  <p className="text-xs text-gray-300 py-3 text-center">No event records</p>
+                )}
+                {eventRecords.map((rec) => (
+                  <div key={rec.id} className={`p-3 rounded-xl border ${rec.status === "inactive" ? "border-gray-100 opacity-50" : "border-gray-200"}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
+                          <span className={`ml-2 flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                            {rec.status === "active" ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-indigo-600 mt-0.5">{rec.roleName}</p>
+                        <p className="text-xs text-gray-400 mt-1">{rec.startDate} → {rec.endDate}</p>
+                      </div>
+                      {mode === "edit" && rec.status === "active" && (
+                        <button onClick={() => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
+                          className="flex-shrink-0 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-colors">Remove</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Attachments ── */}
+          <div className="border-b border-gray-100">
+            <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => toggle("attachments")}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Attachments</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{attachments.length}</span>
+              </div>
+              {collapsed.attachments ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+            </div>
+            {!collapsed.attachments && (
+              <div className="px-5 pb-4 space-y-2">
+                {attachments.length === 0 && mode === "view" && (
+                  <p className="text-xs text-gray-300 py-3 text-center">No attachments</p>
+                )}
+                {attachments.map((att) => (
+                  <div key={att.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
+                    <Paperclip className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="text-xs text-gray-700 flex-1 truncate">{att.name}</span>
+                    {mode === "edit" && (
+                      <button onClick={() => setAttachments((p) => p.filter((a) => a.id !== att.id))}
+                        className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {mode === "edit" && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl border-2 border-dashed border-gray-200 text-gray-300 hover:border-indigo-300 hover:text-indigo-400 transition-colors cursor-pointer">
+                    <Plus className="w-4 h-4" /><span className="text-xs font-medium">Add Attachment</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -781,10 +734,7 @@ function ActorDetailDrawer({
         <div className="border-t border-gray-100 px-5 py-4 flex gap-3 flex-shrink-0">
           {mode === "view" ? (
             <>
-              <button onClick={onClose}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-                Close
-              </button>
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
               <button onClick={() => setMode("edit")}
                 className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors flex items-center justify-center gap-1.5">
                 <Pencil className="w-3.5 h-3.5" />Edit
@@ -792,14 +742,8 @@ function ActorDetailDrawer({
             </>
           ) : (
             <>
-              <button onClick={() => setMode("view")}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button onClick={() => setMode("view")}
-                className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors">
-                Save
-              </button>
+              <button onClick={() => setMode("view")} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+              <button onClick={() => setMode("view")} className="flex-1 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors">Save</button>
             </>
           )}
         </div>
@@ -911,57 +855,39 @@ function CastDialog({ show, role, onClose }: { show: Show; role: Role; onClose: 
   );
 }
 
-// ── Performer Card (grid view) ─────────────────────────────────────────────
+// ── Performer Card (card grid) ─────────────────────────────────────────────
 
 function PerformerCard({ actor, index, type }: { actor: Actor; index: number; type: "home" | "swing" }) {
   const label = type === "home" ? `Home #${index + 1}` : `Swing #${index + 1}`;
   const [open, setOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
 
-  function openView() { setDrawerMode("view"); setOpen(true); }
-  function openEdit() { setDrawerMode("edit"); setOpen(true); }
-
   return (
     <>
-      {open && (
-        <ActorDetailDrawer
-          actor={actor} roleLabel={label}
-          onClose={() => setOpen(false)}
-          defaultMode={drawerMode}
-        />
-      )}
-      <div className="group relative bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
-        {/* Position badge */}
+      {open && <ActorDetailDrawer actor={actor} roleLabel={label} onClose={() => setOpen(false)} defaultMode={drawerMode} />}
+      <div className="group relative bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
         <div className="absolute top-2 left-2 z-10">
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${type === "home" ? "bg-indigo-500 text-white" : "bg-amber-400 text-amber-900"}`}>
+          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-indigo-500 text-white" : "bg-amber-400 text-amber-900"}`}>
             {type === "home" ? `H${index + 1}` : `S${index + 1}`}
           </span>
         </div>
-
-        {/* Edit button */}
-        <button onClick={(e) => { e.stopPropagation(); openEdit(); }}
+        <button onClick={(e) => { e.stopPropagation(); setDrawerMode("edit"); setOpen(true); }}
           className="absolute top-2 right-2 z-10 w-6 h-6 bg-black/30 hover:bg-black/50 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
           <Pencil className="w-3 h-3" />
         </button>
-
-        {/* Photo */}
-        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={openView}>
+        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => { setDrawerMode("view"); setOpen(true); }}>
           <img src={actor.photoUrl} alt={actor.name} className="absolute inset-0 w-full h-full object-cover object-top" loading="lazy" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity w-8 h-8 bg-white/90 rounded-full flex items-center justify-center shadow">
-              <Eye className="w-4 h-4 text-gray-700" />
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity w-7 h-7 bg-white/90 rounded-full flex items-center justify-center shadow">
+              <Eye className="w-3.5 h-3.5 text-gray-700" />
             </div>
           </div>
         </div>
-
-        {/* Info */}
-        <div className="px-3 py-2.5">
+        <div className="px-2 py-2">
           <p className="text-xs font-bold text-gray-900 leading-snug truncate">{actor.name}</p>
-          <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-gray-400">
             <span>{actor.flag}</span>
             <span>{actor.height}cm</span>
-            <span className="text-gray-300">·</span>
-            <span>{actor.weight}kg</span>
           </div>
         </div>
       </div>
@@ -969,17 +895,30 @@ function PerformerCard({ actor, index, type }: { actor: Actor; index: number; ty
   );
 }
 
+// ── Vacancy Card ───────────────────────────────────────────────────────────
+
+function VacancyCard({ index, onAssign }: { index: number; onAssign: () => void }) {
+  return (
+    <div onClick={onAssign}
+      className="rounded-xl border-2 border-dashed border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/40 transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 text-gray-300 hover:text-indigo-400 aspect-[3/4]">
+      <div className="w-8 h-8 rounded-full border-2 border-current flex items-center justify-center">
+        <Plus className="w-4 h-4" />
+      </div>
+      <span className="text-xs font-medium">Vacant #{index + 1}</span>
+    </div>
+  );
+}
+
 // ── Card View ──────────────────────────────────────────────────────────────
 
-function CardView({
-  selectedShow, selectedRole, castTab, setCastTab, onCast,
-}: {
-  selectedShow: Show | null;
-  selectedRole: Role | null;
-  castTab: "home" | "swing";
-  setCastTab: (t: "home" | "swing") => void;
+function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast }: {
+  selectedShow: Show | null; selectedRole: Role | null;
+  castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
   onCast: () => void;
 }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
+
   if (!selectedShow || !selectedRole) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-300">
@@ -989,116 +928,90 @@ function CardView({
     );
   }
 
-  const actors = castTab === "home" ? selectedRole.homeActors : selectedRole.swingActors;
+  const allActors = castTab === "home" ? selectedRole.homeActors : selectedRole.swingActors;
+  const vacancy = castTab === "home" ? Math.max(0, selectedRole.headCount - selectedRole.homeActors.length) : 0;
+
+  // Items for pagination: actors + vacancy placeholders (home only)
+  const allItems = castTab === "home"
+    ? [...allActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i })),
+       ...Array.from({ length: vacancy }, (_, i) => ({ type: "vacant" as const, vacantIndex: i }))]
+    : allActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i }));
+
+  const totalItems = allItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safeP = Math.min(page, totalPages);
+  const pageItems = allItems.slice((safeP - 1) * pageSize, safeP * pageSize);
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-6 pt-5 pb-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">{selectedShow.name}</p>
-            <h2 className="text-lg font-bold text-gray-900">{selectedRole.name}</h2>
-          </div>
-          <button onClick={onCast}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
-            <Users className="w-4 h-4" />Assign Cast
-          </button>
-        </div>
-
-        <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-6">
-          {(["home", "swing"] as const).map((t) => {
-            const count = t === "home" ? selectedRole.homeActors.length : selectedRole.swingActors.length;
-            return (
-              <button key={t} onClick={() => setCastTab(t)}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${castTab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                {t === "home" ? "Home Cast" : "Swing Cast"}
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${castTab === t ? (t === "home" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-700") : "bg-gray-200 text-gray-500"}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {actors.length === 0 ? (
-          <p className="text-sm text-gray-300 py-8 text-center">No {castTab === "home" ? "home" : "swing"} cast assigned</p>
-        ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-3">
-            {actors.map((actor, i) => <PerformerCard key={actor.id} actor={actor} index={i} type={castTab} />)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Roster Overview View ───────────────────────────────────────────────────
-
-function RosterView({ show, onRoleClick }: { show: Show | null; onRoleClick: (roleId: string) => void }) {
-  if (!show) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-300">
-        <Table2 className="w-12 h-12" />
-        <p className="text-sm">Select a show to view the roster overview</p>
-      </div>
-    );
-  }
-
-  const totalHome = show.roles.reduce((s, r) => s + r.homeActors.length, 0);
-  const totalSwing = show.roles.reduce((s, r) => s + r.swingActors.length, 0);
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-6 pt-5 pb-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{show.name}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{show.roles.length} roles · {totalHome} home · {totalSwing} swing</p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {show.roles.map((role) => (
-            <div key={role.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-4 px-5 py-3.5 border-b border-gray-50">
-                <div className="flex-1 min-w-0">
-                  <button onClick={() => onRoleClick(role.id)} className="text-sm font-semibold text-gray-900 hover:text-indigo-600 transition-colors text-left">
-                    {role.name}
-                  </button>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="flex items-center gap-1 text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
-                    {role.homeActors.length} Home
-                  </span>
-                  <span className="flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                    {role.swingActors.length} Swing
-                  </span>
-                </div>
-              </div>
-              <div className="px-5 py-3 flex items-center gap-2">
-                <div className="flex -space-x-2">
-                  {role.homeActors.slice(0, 10).map((a, i) => (
-                    <img key={i} src={a.photoUrl} alt={a.name}
-                      className="w-8 h-8 rounded-full object-cover object-top border-2 border-white"
-                      style={{ zIndex: 10 - i }} loading="lazy" />
-                  ))}
-                  {role.homeActors.length > 10 && (
-                    <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center">
-                      <span className="text-xs text-gray-500 font-semibold">+{role.homeActors.length - 10}</span>
-                    </div>
-                  )}
-                </div>
-                <button onClick={() => onRoleClick(role.id)}
-                  className="ml-auto text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-                  View all →
-                </button>
-              </div>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 pt-5 pb-4">
+          {/* Role header + stats */}
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">{selectedShow.name}</p>
+              <h2 className="text-lg font-bold text-gray-900">{selectedRole.name}</h2>
             </div>
-          ))}
+            <button onClick={onCast}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
+              <Users className="w-4 h-4" />Assign Cast
+            </button>
+          </div>
+
+          {/* Headcount stats */}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
+              <span>编制</span><span className="font-bold text-gray-700">{selectedRole.headCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded-full">
+              <span>在职</span><span className="font-bold">{selectedRole.homeActors.length}</span>
+            </div>
+            {vacancy > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-red-500 bg-red-50 px-3 py-1.5 rounded-full">
+                <span>空缺</span><span className="font-bold">{vacancy}</span>
+              </div>
+            )}
+            {vacancy > 0 && (
+              <button onClick={onCast}
+                className="ml-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors">
+                Fill Vacancy →
+              </button>
+            )}
+          </div>
+
+          {/* Home / Swing tabs */}
+          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-5">
+            {(["home", "swing"] as const).map((t) => {
+              const count = t === "home" ? selectedRole.homeActors.length : selectedRole.swingActors.length;
+              return (
+                <button key={t} onClick={() => { setCastTab(t); setPage(1); }}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${castTab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                  {t === "home" ? "Home Cast" : "Swing Cast"}
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${castTab === t ? (t === "home" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-700") : "bg-gray-200 text-gray-500"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {totalItems === 0 ? (
+            <p className="text-sm text-gray-300 py-8 text-center">No {castTab} cast assigned</p>
+          ) : (
+            <div className="grid grid-cols-6 gap-3">
+              {pageItems.map((item, i) =>
+                item.type === "actor"
+                  ? <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab} />
+                  : <VacancyCard key={`v-${item.vacantIndex}`} index={item.vacantIndex} onAssign={onCast} />
+              )}
+            </div>
+          )}
         </div>
       </div>
+      {totalPages > 1 && (
+        <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
+          totalItems={totalItems} onPageChange={setPage} onPageSizeChange={setPageSize} />
+      )}
     </div>
   );
 }
@@ -1122,10 +1035,16 @@ function ListView({ onUpload }: { onUpload: () => void }) {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [drawerActor, setDrawerActor] = useState<Actor | null>(null);
   const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // Filters
   const [q, setQ] = useState("");
   const [filterShow, setFilterShow] = useState("");
   const [filterRole, setFilterRole] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+  const [filterSkill, setFilterSkill] = useState("");
+  const [filterHeight, setFilterHeight] = useState("");
+  const [filterEvent, setFilterEvent] = useState("");
 
   const allShowNames = DATA.flatMap((l) => l.shows).map((s) => s.name);
   const rolesForShow = DATA.flatMap((l) => l.shows).find((s) => s.name === filterShow)?.roles.map((r) => r.name) ?? [];
@@ -1135,16 +1054,30 @@ function ListView({ onUpload }: { onUpload: () => void }) {
     else { setSortKey(k); setSortDir("asc"); }
   }
 
-  function openView(actor: Actor) { setDrawerActor(actor); setDrawerMode("view"); }
-  function openEdit(actor: Actor) { setDrawerActor(actor); setDrawerMode("edit"); }
+  function reset() {
+    setQ(""); setFilterShow(""); setFilterRole(""); setFilterSkill("");
+    setFilterHeight(""); setFilterEvent(""); setSortKey(null); setPage(1);
+  }
 
   const filtered = useMemo(() => {
     let result = PERFORMERS;
     if (q) { const lq = q.toLowerCase(); result = result.filter((p) => p.name.toLowerCase().includes(lq) || p.ssoId.includes(lq)); }
     if (filterShow) result = result.filter((p) => p.homeShow === filterShow);
     if (filterRole) result = result.filter((p) => p.homeRole === filterRole);
+    if (filterSkill) result = result.filter((p) => p.skillsets?.includes(filterSkill));
+    if (filterHeight) {
+      result = result.filter((p) => {
+        if (filterHeight === "lt165") return p.height < 165;
+        if (filterHeight === "165-170") return p.height >= 165 && p.height < 170;
+        if (filterHeight === "170-175") return p.height >= 170 && p.height < 175;
+        if (filterHeight === "gt175") return p.height >= 175;
+        return true;
+      });
+    }
+    if (filterEvent === "has") result = result.filter((p) => (p.eventRecords?.filter((e) => e.status === "active").length ?? 0) > 0);
+    if (filterEvent === "none") result = result.filter((p) => (p.eventRecords?.filter((e) => e.status === "active").length ?? 0) === 0);
     return result;
-  }, [q, filterShow, filterRole]);
+  }, [q, filterShow, filterRole, filterSkill, filterHeight, filterEvent]);
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -1156,46 +1089,69 @@ function ListView({ onUpload }: { onUpload: () => void }) {
     });
   }, [filtered, sortKey, sortDir]);
 
-  function reset() { setQ(""); setFilterShow(""); setFilterRole(""); setFilterStatus(""); setSortKey(null); }
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safeP = Math.min(page, totalPages);
+  const pageRows = sorted.slice((safeP - 1) * pageSize, safeP * pageSize);
+
+  const hasFilters = !!(q || filterShow || filterRole || filterSkill || filterHeight || filterEvent);
 
   return (
     <div className="flex flex-col h-full">
       {drawerActor && (
-        <ActorDetailDrawer
-          actor={drawerActor}
-          roleLabel={`${drawerActor.homeShow ?? ""} / ${drawerActor.homeRole ?? ""}`}
-          onClose={() => setDrawerActor(null)}
-          defaultMode={drawerMode}
-        />
+        <ActorDetailDrawer actor={drawerActor} roleLabel={`${drawerActor.homeShow ?? ""} / ${drawerActor.homeRole ?? ""}`}
+          onClose={() => setDrawerActor(null)} defaultMode={drawerMode} />
       )}
 
       {/* Filter bar */}
-      <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border-b border-gray-100 px-5 py-2.5 flex items-center gap-2 flex-wrap">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="SSO or Name"
-            className="h-8 pl-8 pr-3 border border-gray-200 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="SSO or Name"
+            className="h-8 pl-8 pr-3 border border-gray-200 rounded-lg text-xs w-40 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
         </div>
-        <select value={filterShow} onChange={(e) => { setFilterShow(e.target.value); setFilterRole(""); }}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
+
+        <select value={filterShow} onChange={(e) => { setFilterShow(e.target.value); setFilterRole(""); setPage(1); }}
+          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-28">
           <option value="">All Shows</option>
           {allShowNames.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} disabled={!filterShow}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-40 disabled:opacity-40">
+
+        <select value={filterRole} onChange={(e) => { setFilterRole(e.target.value); setPage(1); }} disabled={!filterShow}
+          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-36 disabled:opacity-40">
           <option value="">All Roles</option>
           {rolesForShow.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
-          <option value="">All Status</option>
-          <option>Active</option><option>On Leave</option><option>Terminated</option>
+
+        <select value={filterSkill} onChange={(e) => { setFilterSkill(e.target.value); setPage(1); }}
+          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
+          <option value="">All Skills</option>
+          {ALL_SKILLSETS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <button onClick={reset} className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-          <RotateCcw className="w-3.5 h-3.5" />
-        </button>
+
+        <select value={filterHeight} onChange={(e) => { setFilterHeight(e.target.value); setPage(1); }}
+          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
+          <option value="">All Heights</option>
+          <option value="lt165">&lt; 165 cm</option>
+          <option value="165-170">165 – 170 cm</option>
+          <option value="170-175">170 – 175 cm</option>
+          <option value="gt175">&gt; 175 cm</option>
+        </select>
+
+        <select value={filterEvent} onChange={(e) => { setFilterEvent(e.target.value); setPage(1); }}
+          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-36">
+          <option value="">All Experience</option>
+          <option value="has">Has Event Exp.</option>
+          <option value="none">No Event Exp.</option>
+        </select>
+
+        {hasFilters && (
+          <button onClick={reset} className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         <span className="text-xs text-gray-400 ml-auto">{sorted.length} performers</span>
-        <button onClick={onUpload} className="h-8 flex items-center gap-1.5 px-3 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors">
+        <button onClick={onUpload} className="h-8 flex items-center gap-1.5 px-3 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-colors">
           <Upload className="w-3.5 h-3.5" />Add
         </button>
       </div>
@@ -1215,8 +1171,8 @@ function ListView({ onUpload }: { onUpload: () => void }) {
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
                 Weight <SortBtn col="weight" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
-              <th className="text-left px-4 py-3 font-semibold">Home Show / Role</th>
-              <th className="text-left px-4 py-3 font-semibold">Skillset</th>
+              <th className="text-left px-4 py-3 font-semibold">Show / Role</th>
+              <th className="text-left px-4 py-3 font-semibold">Event Exp.</th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
                 Contract End <SortBtn col="contractEndDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
@@ -1224,47 +1180,51 @@ function ListView({ onUpload }: { onUpload: () => void }) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-50">
-            {sorted.length === 0 && (
+            {pageRows.length === 0 && (
               <tr><td colSpan={10} className="text-center py-16 text-gray-300 text-sm">No performers found</td></tr>
             )}
-            {sorted.map((p) => (
-              <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-                <td className="px-4 py-3">
-                  <img src={p.photoUrl} alt={p.name} className="w-9 h-9 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
-                </td>
-                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{p.name}</td>
-                <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
-                <td className="px-4 py-3 text-gray-600">{p.flag} {p.nationality}</td>
-                <td className="px-4 py-3 text-gray-600">{p.height} cm</td>
-                <td className="px-4 py-3 text-gray-600">{p.weight} kg</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                  {p.homeShow ? <><span className="font-medium text-indigo-600">{p.homeShow}</span> / {p.homeRole}</> : "—"}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {(p.skillsets ?? []).slice(0, 3).map((s) => (
-                      <span key={s} className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
-                    ))}
-                    {(p.skillsets?.length ?? 0) > 3 && <span className="text-xs text-gray-400">+{(p.skillsets?.length ?? 0) - 3}</span>}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={() => openEdit(p)} className="text-xs text-gray-500 hover:text-gray-800 font-medium mr-3 transition-colors">Edit</button>
-                  <button onClick={() => openView(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
-                </td>
-              </tr>
-            ))}
+            {pageRows.map((p) => {
+              const evCount = p.eventRecords?.filter((e) => e.status === "active").length ?? 0;
+              return (
+                <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
+                  <td className="px-4 py-3">
+                    <img src={p.photoUrl} alt={p.name} className="w-9 h-9 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
+                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{p.name}</td>
+                  <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.flag} {p.nationality}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.height} cm</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.weight} kg</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                    {p.homeShow ? <><span className="font-medium text-indigo-600">{p.homeShow}</span> / {p.homeRole}</> : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {evCount > 0
+                      ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-green-50 text-green-700 rounded-full font-medium">{evCount} events</span>
+                      : <span className="text-xs text-gray-300">—</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <button onClick={() => { setDrawerActor(p); setDrawerMode("edit"); }} className="text-xs text-gray-500 hover:text-gray-800 font-medium mr-3 transition-colors">Edit</button>
+                    <button onClick={() => { setDrawerActor(p); setDrawerMode("view"); }} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[10, 20, 50]}
+        totalItems={sorted.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </div>
   );
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-type ViewMode = "card" | "roster" | "list";
+type ViewMode = "card" | "list";
 
 export default function CastingBookPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("card");
@@ -1277,22 +1237,10 @@ export default function CastingBookPage() {
 
   const land = useMemo(() => DATA.find((l) => l.id === selectedLandId) ?? DATA[0], [selectedLandId]);
   const selectedShow = useMemo(() => land.shows.find((s) => s.id === selectedShowId) ?? null, [land, selectedShowId]);
-  const selectedRole = useMemo(() => (selectedRoleId ? selectedShow?.roles.find((r) => r.id === selectedRoleId) ?? null : null), [selectedShow, selectedRoleId]);
+  const selectedRole = useMemo(() => selectedRoleId ? selectedShow?.roles.find((r) => r.id === selectedRoleId) ?? null : null, [selectedShow, selectedRoleId]);
 
-  function selectShow(showId: string) {
-    setSelectedShowId(showId);
-    setSelectedRoleId(null);
-    setCastTab("home");
-  }
-
-  function selectRole(roleId: string) {
-    setSelectedRoleId(roleId);
-    setCastTab("home");
-    if (viewMode === "roster") setViewMode("card");
-  }
-
-  const showTotalHome = selectedShow?.roles.reduce((s, r) => s + r.homeActors.length, 0) ?? 0;
-  const showTotalSwing = selectedShow?.roles.reduce((s, r) => s + r.swingActors.length, 0) ?? 0;
+  function selectShow(showId: string) { setSelectedShowId(showId); setSelectedRoleId(null); setCastTab("home"); }
+  function selectRole(roleId: string) { setSelectedRoleId(roleId); setCastTab("home"); }
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -1308,7 +1256,6 @@ export default function CastingBookPage() {
             <button key={l.id} onClick={() => { setSelectedLandId(l.id); setSelectedShowId(l.shows[0].id); setSelectedRoleId(null); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${selectedLandId === l.id ? "bg-indigo-50 text-indigo-700" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`}>
               {l.label}
-              <ChevronDown className="w-3.5 h-3.5" />
             </button>
           ))}
         </div>
@@ -1316,7 +1263,6 @@ export default function CastingBookPage() {
         <div className="ml-auto flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
           {([
             ["card", "Cards", LayoutGrid],
-            ["roster", "Roster", Table2],
             ["list", "Performers", List],
           ] as [ViewMode, string, React.ElementType][]).map(([mode, label, Icon]) => (
             <button key={mode} onClick={() => setViewMode(mode)}
@@ -1327,8 +1273,8 @@ export default function CastingBookPage() {
         </div>
       </header>
 
-      {/* Show & Role nav */}
-      {viewMode !== "list" && (
+      {/* Show & Role nav (card mode only) */}
+      {viewMode === "card" && (
         <div className="bg-white border-b border-gray-100 flex-shrink-0">
           <div className="px-5 pt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             {land.shows.map((show) => {
@@ -1346,20 +1292,17 @@ export default function CastingBookPage() {
 
           {selectedShow && (
             <div className="px-5 pb-3 pt-2 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-              {viewMode === "roster" && (
-                <button onClick={() => setSelectedRoleId(null)}
-                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${selectedRoleId === null ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                  All Roles
-                  <span className={`text-xs ml-0.5 ${selectedRoleId === null ? "text-gray-300" : "text-gray-400"}`}>{showTotalHome}+{showTotalSwing}</span>
-                </button>
-              )}
               {selectedShow.roles.map((role) => {
                 const active = selectedRoleId === role.id;
+                const vacancy = Math.max(0, role.headCount - role.homeActors.length);
                 return (
                   <button key={role.id} onClick={() => selectRole(role.id)}
-                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${active ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${active ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
                     {role.name}
-                    <span className={`text-xs ml-0.5 ${active ? "text-indigo-200" : "text-gray-400"}`}>{role.homeActors.length}+{role.swingActors.length}</span>
+                    <span className={`text-xs ${active ? "text-indigo-200" : "text-gray-400"}`}>{role.homeActors.length}/{role.headCount}</span>
+                    {vacancy > 0 && (
+                      <span className={`text-xs font-bold px-1 rounded ${active ? "bg-white/20 text-white" : "bg-red-100 text-red-500"}`}>-{vacancy}</span>
+                    )}
                   </button>
                 );
               })}
@@ -1371,20 +1314,10 @@ export default function CastingBookPage() {
       {/* Main Content */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {viewMode === "card" && (
-          <CardView
-            selectedShow={selectedShow}
-            selectedRole={selectedRole}
-            castTab={castTab}
-            setCastTab={setCastTab}
-            onCast={() => setShowCastDialog(true)}
-          />
+          <CardView selectedShow={selectedShow} selectedRole={selectedRole}
+            castTab={castTab} setCastTab={setCastTab} onCast={() => setShowCastDialog(true)} />
         )}
-        {viewMode === "roster" && (
-          <RosterView show={selectedShow} onRoleClick={selectRole} />
-        )}
-        {viewMode === "list" && (
-          <ListView onUpload={() => setShowUploadModal(true)} />
-        )}
+        {viewMode === "list" && <ListView onUpload={() => setShowUploadModal(true)} />}
       </div>
 
       {showCastDialog && selectedShow && selectedRole && (

@@ -3,7 +3,32 @@
     "allow": [
       "Bash(npx create-next-app@latest *)",
       "Bash(mv PLAN.md /tmp/PLAN.md)",
-      "Bash(mv /tmp/PLAN.md .)"
+      "Bash(mv /tmp/PLAN.md .)",
+      "Bash(npm install *)",
+      "Bash(npx prisma *)",
+      "Bash(node *)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(pkill -f \"next dev\")",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/api/sessions)",
+      "Bash(python3 -m json.tool)",
+      "Bash(bash start.sh)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(unzip -q /Users/bytedance/repos/live_audition_scoring/live-audition-scoring-20260422.zip)",
+      "Bash(chmod +x pack.sh)",
+      "Bash(bash pack.sh)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/casting/book)",
+      "Bash(curl -s http://localhost:3000/casting/book)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(npx eslint *)",
+      "Read(//Users/bytedance/Downloads/**)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
