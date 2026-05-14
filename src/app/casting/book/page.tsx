@@ -5,9 +5,9 @@ import { useState, useMemo, useRef } from "react";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
-  Search, RotateCcw, Eye, Users, Film, Plus, Paperclip,
+  RotateCcw, Eye, Users, Film, Plus, Paperclip,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
-  Filter, Check, Save,
+  Filter, Check,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -15,17 +15,35 @@ import * as XLSX from "xlsx";
 
 interface MediaFile { type: "photo" | "video"; url: string; duration?: string; note?: string }
 interface SkillEntry { id: string; type: string; skill: string }
-interface SwingRecord { id: string; showName: string; roleName: string; note: string; createdAt: string; status: "active" | "inactive" }
+interface ShowRoleRecord {
+  id: string; show: string; role: string; roleType: "home" | "swing";
+  date: string; status: "active" | "inactive";
+}
 interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
-interface Measurements { height: number; weight: number; chest: number; waist: number; hip: number; inseam: number; shoeSize: number }
+
+// Measurement: each numeric field stores TM (Talent Manager) and Costuming dual values
+type MeasNum = { tm: number | ""; costuming: number | "" };
+type MeasStr = { tm: string; costuming: string };
+interface Measurements {
+  height: MeasNum; weight: MeasNum; braSize: MeasStr;
+  neck: MeasNum; sneakerSize: MeasNum; headCircumference: MeasNum;
+  acrossShoulderBack: MeasNum; acrossFront: MeasNum; acrossBack: MeasNum;
+  chest: MeasNum; waist: MeasNum; hips: MeasNum;
+  bicep: MeasNum; wrist: MeasNum;
+  updateInfo: { date: string; editor: string; ssoId: string };
+}
+
 interface Attachment { id: string; name: string; fileType: string }
 
 interface Actor {
   id: number; ssoId: string; name: string; nationality: string; flag: string;
+  gender?: "men" | "women";
+  employeeClass?: string;
+  idPassportEndDate?: string;
   height: number; weight: number; photoUrl: string;
   homeShow?: string; homeRole?: string; contractEndDate?: string;
   skillEntries?: SkillEntry[];
-  mediaFiles?: MediaFile[]; swingRecords?: SwingRecord[]; eventRecords?: EventRecord[];
+  mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
   measurements?: Measurements; attachments?: Attachment[];
 }
 
@@ -54,8 +72,6 @@ const SKILL_TAG_COLORS: Record<string, string> = {
   "特技/杂技": "bg-emerald-100 text-emerald-700",
   "其它": "bg-gray-100 text-gray-600",
 };
-
-const ALL_SKILL_FLAT = SKILLSET_CATEGORIES.flatMap((c) => c.skills);
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
 
@@ -107,15 +123,39 @@ function dHash(n: number): number {
   return Math.abs(x);
 }
 
+const MEAS_EDITORS = [
+  { name: "James Li Xiao", sso: "20099999" },
+  { name: "Sarah Chen", sso: "20088888" },
+  { name: "Marcus Wong", sso: "20077777" },
+];
+
 function genMeasurements(seed: number, height: number, weight: number): Measurements {
   const h = dHash(seed * 23);
+  const pair = (base: number, range: number, diff: number): MeasNum => ({
+    tm: base + (h % range),
+    costuming: base + (h % range) + (dHash(seed + diff) % 3) - 1,
+  });
+  const ed = MEAS_EDITORS[h % MEAS_EDITORS.length];
+  const upDate = new Date(Date.now() - ((h % 240) + 30) * 86400000).toISOString().split("T")[0];
   return {
-    height, weight,
-    chest: 78 + (h % 22),
-    waist: 58 + (dHash(seed * 7) % 22),
-    hip: 82 + (dHash(seed * 11) % 18),
-    inseam: 68 + (dHash(seed * 13) % 15),
-    shoeSize: 36 + (dHash(seed * 17) % 10),
+    height: { tm: height, costuming: height - (dHash(seed * 3) % 2) },
+    weight: { tm: weight, costuming: weight + (dHash(seed * 5) % 2) },
+    braSize: {
+      tm: `${28 + (h % 12)}${["A", "B", "C", "D", "DD"][dHash(seed * 31) % 5]}`,
+      costuming: `${8 + (h % 10)}${["A", "B", "C", "D"][dHash(seed * 29) % 4]}`,
+    },
+    neck: pair(32, 8, 1),
+    sneakerSize: pair(35, 12, 2),
+    headCircumference: pair(54, 8, 3),
+    acrossShoulderBack: pair(38, 8, 4),
+    acrossFront: pair(38, 12, 5),
+    acrossBack: pair(38, 12, 6),
+    chest: pair(78, 22, 7),
+    waist: pair(58, 22, 8),
+    hips: pair(82, 18, 9),
+    bicep: pair(28, 10, 10),
+    wrist: pair(15, 6, 11),
+    updateInfo: { date: upDate, editor: ed.name, ssoId: ed.sso },
   };
 }
 
@@ -154,6 +194,7 @@ function genActors(seed: number, count: number): Actor[] {
       id: seed * 100 + i,
       ssoId: `${100000 + (dHash(seed * 5 + i) % 900000)}`,
       name: pool.name, nationality: pool.nationality, flag: pool.flag,
+      gender: pool.gender,
       height, weight,
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
       measurements: genMeasurements(seed * 100 + i, height, weight),
@@ -162,22 +203,25 @@ function genActors(seed: number, count: number): Actor[] {
   });
 }
 
-function genSwingRecords(seed: number): SwingRecord[] {
-  const count = dHash(seed * 7) % 4;
-  return Array.from({ length: count }, (_, i) => {
+function genShowRoleRecords(seed: number, primaryShow: string, primaryRole: string, primaryDate: string): ShowRoleRecord[] {
+  const swingCount = dHash(seed * 7) % 4;
+  const records: ShowRoleRecord[] = [
+    { id: `sr-${seed}-home`, show: primaryShow, role: primaryRole, roleType: "home", date: primaryDate, status: "active" },
+  ];
+  for (let i = 0; i < swingCount; i++) {
     const h = dHash(seed * 11 + i);
     const daysAgo = (h % 365) + 30;
-    const date = new Date(Date.now() - daysAgo * 86400000);
-    const notes = ["Primary swing cover", "Emergency cover only", ""];
-    return {
-      id: `sw-${seed}-${i}`,
-      showName: SWING_SHOWS[h % SWING_SHOWS.length],
-      roleName: SWING_ROLES[dHash(seed * 3 + i) % SWING_ROLES.length],
-      note: notes[i % notes.length],
-      createdAt: date.toISOString().split("T")[0],
-      status: (h % 5 === 0 ? "inactive" : "active") as "active" | "inactive",
-    };
-  });
+    const date = new Date(Date.now() - daysAgo * 86400000).toISOString().split("T")[0];
+    records.push({
+      id: `sr-${seed}-sw${i}`,
+      show: SWING_SHOWS[h % SWING_SHOWS.length],
+      role: SWING_ROLES[dHash(seed * 3 + i) % SWING_ROLES.length],
+      roleType: "swing",
+      date,
+      status: (h % 5 === 0 ? "inactive" : "active"),
+    });
+  }
+  return records;
 }
 
 function genEventRecords(seed: number): EventRecord[] {
@@ -264,6 +308,8 @@ const SHOW_ROLE_PAIRS = [
   { show: "PL", role: "Parade Lead" },
 ];
 
+const EMPLOYEE_CLASSES = ["Foreign Foreign", "Local", "Foreign Local", "Mainland"];
+
 function genPerformer(seed: number): Actor {
   const h = dHash(seed * 31);
   const pool = ACTOR_POOL[h % ACTOR_POOL.length];
@@ -284,15 +330,21 @@ function genPerformer(seed: number): Actor {
   ];
   const height = 160 + (dHash(seed) % 26);
   const weight = 48 + (dHash(seed * 2) % 35);
+  const contractEndDate = CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
   return {
     id: 9000 + seed, ssoId: `2001${String(7000 + dHash(seed * 19) % 3000)}`,
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
+    gender: pool.gender,
+    employeeClass: EMPLOYEE_CLASSES[dHash(seed * 41) % EMPLOYEE_CLASSES.length],
+    idPassportEndDate: CONTRACT_DATES[dHash(seed * 43) % CONTRACT_DATES.length],
     height, weight,
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
-    contractEndDate: CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length],
+    contractEndDate,
     skillEntries: genSkillEntries(seed),
-    mediaFiles, swingRecords: genSwingRecords(seed), eventRecords: genEventRecords(seed),
+    mediaFiles,
+    showRoleRecords: genShowRoleRecords(seed, pair.show, pair.role, contractEndDate),
+    eventRecords: genEventRecords(seed),
     measurements: genMeasurements(seed, height, weight),
     attachments: genAttachments(seed),
   };
@@ -419,6 +471,326 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
   );
 }
 
+// ── Filter Panel (shared by Card View & Roster View) ──────────────────────
+
+interface Filters {
+  performer: string;
+  employeeClass: string;
+  heightMin: string; heightMax: string;
+  weightMin: string; weightMax: string;
+  gender: string;
+  skillType: string; skillSub: string;
+  offerShow: string; offerRole: string;
+  homeShow: string; homeRole: string;
+  swingShow: string; swingRole: string;
+  eventExp: string;
+  contractEndBefore: string;
+  idPassportEndBefore: string;
+  nationality: string;
+}
+
+const EMPTY_FILTERS: Filters = {
+  performer: "", employeeClass: "",
+  heightMin: "", heightMax: "", weightMin: "", weightMax: "",
+  gender: "", skillType: "", skillSub: "",
+  offerShow: "", offerRole: "", homeShow: "", homeRole: "", swingShow: "", swingRole: "",
+  eventExp: "", contractEndBefore: "", idPassportEndBefore: "", nationality: "",
+};
+
+function hasAnyFilter(f: Filters): boolean {
+  return Object.values(f).some((v) => v !== "");
+}
+
+function actorMatchesFilters(a: Actor, f: Filters): boolean {
+  if (f.performer) {
+    const lq = f.performer.toLowerCase();
+    if (!a.name.toLowerCase().includes(lq) && !a.ssoId.includes(lq)) return false;
+  }
+  if (f.employeeClass && a.employeeClass !== f.employeeClass) return false;
+  if (f.heightMin && a.height < +f.heightMin) return false;
+  if (f.heightMax && a.height > +f.heightMax) return false;
+  if (f.weightMin && a.weight < +f.weightMin) return false;
+  if (f.weightMax && a.weight > +f.weightMax) return false;
+  if (f.gender) {
+    const g = f.gender === "Male" ? "men" : f.gender === "Female" ? "women" : "";
+    if (g && a.gender !== g) return false;
+  }
+  if (f.skillType && !a.skillEntries?.some((e) => e.type === f.skillType && (!f.skillSub || e.skill === f.skillSub))) return false;
+  if (f.homeShow && a.homeShow !== f.homeShow) return false;
+  if (f.homeRole && a.homeRole !== f.homeRole) return false;
+  if (f.swingShow && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.show === f.swingShow)) return false;
+  if (f.swingRole && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.role === f.swingRole)) return false;
+  if (f.eventExp === "has" && (a.eventRecords?.filter((e) => e.status === "active").length ?? 0) === 0) return false;
+  if (f.eventExp === "none" && (a.eventRecords?.filter((e) => e.status === "active").length ?? 0) > 0) return false;
+  if (f.contractEndBefore) {
+    if (!a.contractEndDate || a.contractEndDate > f.contractEndBefore) return false;
+  }
+  if (f.idPassportEndBefore) {
+    if (!a.idPassportEndDate || a.idPassportEndDate > f.idPassportEndBefore) return false;
+  }
+  if (f.nationality && a.nationality !== f.nationality) return false;
+  return true;
+}
+
+const ALL_SHOWS = DATA.flatMap((l) => l.shows);
+const ALL_NATIONALITIES = [...new Set(ACTOR_POOL.map((a) => a.nationality))].sort();
+const EMPLOYEE_CLASS_OPTS = ["Local", "Foreign Local", "Foreign Foreign", "Mainland"];
+
+function FilterPanel({ filters, onChange, onClose }: {
+  filters: Filters; onChange: (next: Filters) => void; onClose: () => void;
+}) {
+  const set = (k: keyof Filters, v: string) => onChange({ ...filters, [k]: v });
+  const skillsForType = SKILLSET_CATEGORIES.find((c) => c.type === filters.skillType)?.skills ?? [];
+  const rolesForShow = (showName: string) => ALL_SHOWS.find((s) => s.name === showName)?.roles ?? [];
+
+  const fieldCls = "h-9 px-2.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 placeholder:text-gray-300 w-full";
+  const lblCls = "block text-xs text-gray-500 mb-1";
+
+  const renderShowRolePair = (showKey: keyof Filters, roleKey: keyof Filters, showLabel: string) => (
+    <div className="col-span-2">
+      <label className={lblCls}>{showLabel}</label>
+      <div className="grid grid-cols-2 gap-1.5">
+        <select value={filters[showKey]} onChange={(e) => onChange({ ...filters, [showKey]: e.target.value, [roleKey]: "" })} className={fieldCls}>
+          <option value="">请选择</option>
+          {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+        </select>
+        <select value={filters[roleKey]} onChange={(e) => set(roleKey, e.target.value)} disabled={!filters[showKey]} className={fieldCls + " disabled:opacity-50"}>
+          <option value="">请选择</option>
+          {rolesForShow(filters[showKey]).map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm mb-4">
+      <div className="grid grid-cols-6 gap-3">
+        <div>
+          <label className={lblCls}>Performer</label>
+          <input value={filters.performer} onChange={(e) => set("performer", e.target.value)} placeholder="请输入SSO/姓名" className={fieldCls} />
+        </div>
+        <div>
+          <label className={lblCls}>Employee Class</label>
+          <select value={filters.employeeClass} onChange={(e) => set("employeeClass", e.target.value)} className={fieldCls}>
+            <option value="">请选择</option>
+            {EMPLOYEE_CLASS_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={lblCls}>Height Range</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            <input value={filters.heightMin} onChange={(e) => set("heightMin", e.target.value)} placeholder="cm" type="number" className={fieldCls} />
+            <input value={filters.heightMax} onChange={(e) => set("heightMax", e.target.value)} placeholder="cm" type="number" className={fieldCls} />
+          </div>
+        </div>
+        <div>
+          <label className={lblCls}>Weight Range</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            <input value={filters.weightMin} onChange={(e) => set("weightMin", e.target.value)} placeholder="kg" type="number" className={fieldCls} />
+            <input value={filters.weightMax} onChange={(e) => set("weightMax", e.target.value)} placeholder="kg" type="number" className={fieldCls} />
+          </div>
+        </div>
+        <div>
+          <label className={lblCls}>Gender</label>
+          <select value={filters.gender} onChange={(e) => set("gender", e.target.value)} className={fieldCls}>
+            <option value="">All</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+        </div>
+        <div>
+          <label className={lblCls}>Skillset</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            <select value={filters.skillType} onChange={(e) => onChange({ ...filters, skillType: e.target.value, skillSub: "" })} className={fieldCls}>
+              <option value="">Category</option>
+              {SKILLSET_CATEGORIES.map((c) => <option key={c.type} value={c.type}>{c.type}</option>)}
+            </select>
+            <select value={filters.skillSub} onChange={(e) => set("skillSub", e.target.value)} disabled={!filters.skillType} className={fieldCls + " disabled:opacity-50"}>
+              <option value="">Subcategory</option>
+              {skillsForType.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        {renderShowRolePair("offerShow", "offerRole", "Offer Show & Role")}
+        {renderShowRolePair("homeShow", "homeRole", "Current Home Show & Role")}
+        {renderShowRolePair("swingShow", "swingRole", "Swing Show & Role")}
+        <div>
+          <label className={lblCls}>Event Experience</label>
+          <select value={filters.eventExp} onChange={(e) => set("eventExp", e.target.value)} className={fieldCls}>
+            <option value="">请选择</option>
+            <option value="has">Has Experience</option>
+            <option value="none">No Experience</option>
+          </select>
+        </div>
+        <div className="col-span-2">
+          <label className={lblCls}>Contract End Date</label>
+          <div className="grid grid-cols-[100px_1fr] gap-1.5">
+            <span className="h-9 px-2.5 flex items-center bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">Earlier than</span>
+            <input type="date" value={filters.contractEndBefore} onChange={(e) => set("contractEndBefore", e.target.value)} className={fieldCls} />
+          </div>
+        </div>
+        <div className="col-span-2">
+          <label className={lblCls}>ID/Passport Valid End Date</label>
+          <div className="grid grid-cols-[100px_1fr] gap-1.5">
+            <span className="h-9 px-2.5 flex items-center bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">Earlier than</span>
+            <input type="date" value={filters.idPassportEndBefore} onChange={(e) => set("idPassportEndBefore", e.target.value)} className={fieldCls} />
+          </div>
+        </div>
+        <div>
+          <label className={lblCls}>Nationality</label>
+          <select value={filters.nationality} onChange={(e) => set("nationality", e.target.value)} className={fieldCls}>
+            <option value="">请选择</option>
+            {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        {hasAnyFilter(filters) ? (
+          <button onClick={() => onChange(EMPTY_FILTERS)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+            <RotateCcw className="w-3 h-3" />Reset
+          </button>
+        ) : <span />}
+        <button onClick={onClose} className="text-sm text-indigo-500 hover:text-indigo-700 font-medium transition-colors">Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Measurement Section ────────────────────────────────────────────────────
+
+const MEAS_GROUPS: { col: ("left" | "mid" | "right"); label: string; key: keyof Measurements; kind: "num" | "str" }[] = [
+  // Left column
+  { col: "left", label: "Height 身高(cm)", key: "height", kind: "num" },
+  { col: "left", label: "Neck 领围(cm)", key: "neck", kind: "num" },
+  { col: "left", label: "Across Shoulder Back 后肩宽(cm)", key: "acrossShoulderBack", kind: "num" },
+  { col: "left", label: "Chest 胸围(cm)", key: "chest", kind: "num" },
+  { col: "left", label: "Bicep 大臂围(cm)", key: "bicep", kind: "num" },
+  // Mid column
+  { col: "mid", label: "Weight 体重(kg)", key: "weight", kind: "num" },
+  { col: "mid", label: "Sneaker Size 运动鞋尺码", key: "sneakerSize", kind: "num" },
+  { col: "mid", label: "Across Front 前胸宽(cm)", key: "acrossFront", kind: "num" },
+  { col: "mid", label: "Waist 腰围(cm)", key: "waist", kind: "num" },
+  { col: "mid", label: "Wrist 手腕(cm)", key: "wrist", kind: "num" },
+  // Right column
+  { col: "right", label: "Bra Size 胸罩罩杯", key: "braSize", kind: "str" },
+  { col: "right", label: "Head Circumference 头围(cm)", key: "headCircumference", kind: "num" },
+  { col: "right", label: "Across Back 后背宽(cm)", key: "acrossBack", kind: "num" },
+  { col: "right", label: "Hips 臀围(cm)", key: "hips", kind: "num" },
+];
+
+function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed, onToggleCollapse, onEdit, onSave, onCancel, onDownload }: {
+  meas: Measurements; measDraft: Measurements; setMeasDraft: (m: Measurements) => void;
+  editing: boolean; collapsed: boolean;
+  onToggleCollapse: () => void; onEdit: () => void; onSave: () => void; onCancel: () => void;
+  onDownload: () => void;
+}) {
+  const cols: Record<"left" | "mid" | "right", typeof MEAS_GROUPS> = { left: [], mid: [], right: [] };
+  MEAS_GROUPS.forEach((g) => cols[g.col].push(g));
+
+  function renderCell(group: typeof MEAS_GROUPS[number]) {
+    const src = editing ? measDraft : meas;
+    const field = src[group.key] as MeasNum | MeasStr;
+    if (editing) {
+      const update = (which: "tm" | "costuming", val: string) => {
+        const next = { ...measDraft };
+        const cur = next[group.key] as MeasNum | MeasStr;
+        if (group.kind === "num") {
+          (next[group.key] as MeasNum) = { ...(cur as MeasNum), [which]: val === "" ? "" : +val };
+        } else {
+          (next[group.key] as MeasStr) = { ...(cur as MeasStr), [which]: val };
+        }
+        setMeasDraft(next);
+      };
+      return (
+        <div className="grid grid-cols-[1fr_56px_56px] items-center gap-1.5 py-1">
+          <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
+          <input
+            type={group.kind === "num" ? "number" : "text"}
+            value={String(field.tm ?? "")}
+            onChange={(e) => update("tm", e.target.value)}
+            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-indigo-300" />
+          <input
+            type={group.kind === "num" ? "number" : "text"}
+            value={String(field.costuming ?? "")}
+            onChange={(e) => update("costuming", e.target.value)}
+            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-indigo-300" />
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-[1fr_56px_56px] items-center gap-1.5 py-1.5">
+        <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
+        <span className="text-[11px] text-gray-700 text-center">{field.tm === "" ? "—" : field.tm}</span>
+        <span className="text-[11px] font-semibold text-gray-900 text-center">{field.costuming === "" ? "—" : field.costuming}</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+        onClick={onToggleCollapse}>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-900">Measurement Form</span>
+          {!editing && !collapsed && (
+            <button onClick={(e) => { e.stopPropagation(); onDownload(); }}
+              className="text-indigo-500 hover:text-indigo-700 transition-colors p-0.5 rounded">
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {!editing && !collapsed && (
+            <>
+              <span className="text-[10px] text-gray-400">
+                Update Info: <span className="text-gray-600">{meas.updateInfo.date || "—"}</span> · <span className="text-gray-600">{meas.updateInfo.editor}</span> {meas.updateInfo.ssoId && <span className="text-gray-400">({meas.updateInfo.ssoId})</span>}
+              </span>
+              <button onClick={onEdit}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                <Pencil className="w-3 h-3" />Edit
+              </button>
+            </>
+          )}
+          {editing && (
+            <>
+              <button onClick={onCancel}
+                className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
+              <button onClick={onSave}
+                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">
+                <Check className="w-3 h-3" />Save
+              </button>
+            </>
+          )}
+          <button onClick={onToggleCollapse} className="ml-1 p-0.5">
+            {collapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+          </button>
+        </div>
+      </div>
+      {!collapsed && (
+        <div className="px-5 pb-4">
+          {/* Column headers */}
+          <div className="grid grid-cols-3 gap-3 mb-1.5">
+            {(["left", "mid", "right"] as const).map((c) => (
+              <div key={c} className="grid grid-cols-[1fr_56px_56px] gap-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                <span></span>
+                <span className="text-center">TM</span>
+                <span className="text-center">Costuming</span>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-3 divide-x-0">
+            {(["left", "mid", "right"] as const).map((c) => (
+              <div key={c} className="divide-y divide-gray-50">
+                {cols[c].map((g) => <div key={g.key as string}>{renderCell(g)}</div>)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Actor Detail Drawer ────────────────────────────────────────────────────
 
 function ActorDetailDrawer({ actor, roleLabel, onClose }: {
@@ -465,35 +837,87 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
   }
 
   // ── Show & Role section ────────────────────────────────────────────────
-  const [swingRecords, setSwingRecords] = useState<SwingRecord[]>(actor.swingRecords ?? []);
-  const [addingSwing, setAddingSwing] = useState(false);
-  const [swingForm, setSwingForm] = useState({ showName: "", roleName: "", note: "" });
-  const [editingSwingId, setEditingSwingId] = useState<string | null>(null);
-  const [editSwingForm, setEditSwingForm] = useState({ showName: "", roleName: "", note: "" });
+  const initialShowRoleRecords: ShowRoleRecord[] = actor.showRoleRecords
+    ?? (actor.homeShow && actor.homeRole
+      ? [{ id: `sr-${actor.id}-home`, show: actor.homeShow, role: actor.homeRole, roleType: "home", date: actor.contractEndDate ?? "—", status: "active" }]
+      : []);
+  const [showRoleRecords, setShowRoleRecords] = useState<ShowRoleRecord[]>(initialShowRoleRecords);
+  const [addingShowRole, setAddingShowRole] = useState(false);
+  const [showRoleForm, setShowRoleForm] = useState<{ show: string; role: string; roleType: "home" | "swing" }>({ show: "", role: "", roleType: "home" });
 
-  function saveSwing() {
-    if (!swingForm.showName || !swingForm.roleName) return;
-    setSwingRecords((p) => [{ id: `sw-${Date.now()}`, ...swingForm, createdAt: new Date().toISOString().split("T")[0], status: "active" }, ...p]);
-    setSwingForm({ showName: "", roleName: "", note: "" });
-    setAddingSwing(false);
-  }
+  const rolesForFormShow = DATA.flatMap((l) => l.shows).find((s) => s.name === showRoleForm.show)?.roles ?? [];
 
-  function startEditSwing(rec: SwingRecord) {
-    setEditingSwingId(rec.id);
-    setEditSwingForm({ showName: rec.showName, roleName: rec.roleName, note: rec.note });
-  }
-
-  function saveEditSwing(id: string) {
-    setSwingRecords((p) => p.map((r) => r.id === id ? { ...r, ...editSwingForm } : r));
-    setEditingSwingId(null);
+  function saveShowRole() {
+    if (!showRoleForm.show || !showRoleForm.role) return;
+    setShowRoleRecords((p) => [
+      { id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role, roleType: showRoleForm.roleType, date: new Date().toISOString().split("T")[0], status: "active" },
+      ...p,
+    ]);
+    setShowRoleForm({ show: "", role: "", roleType: "home" });
+    setAddingShowRole(false);
   }
 
   // ── Measurements section ───────────────────────────────────────────────
-  const [meas, setMeas] = useState<Measurements>(
-    actor.measurements ?? { height: actor.height, weight: actor.weight, chest: 85, waist: 65, hip: 90, inseam: 75, shoeSize: 40 }
-  );
+  const fallbackMeas: Measurements = {
+    height: { tm: actor.height, costuming: actor.height },
+    weight: { tm: actor.weight, costuming: actor.weight },
+    braSize: { tm: "", costuming: "" },
+    neck: { tm: "", costuming: "" }, sneakerSize: { tm: "", costuming: "" }, headCircumference: { tm: "", costuming: "" },
+    acrossShoulderBack: { tm: "", costuming: "" }, acrossFront: { tm: "", costuming: "" }, acrossBack: { tm: "", costuming: "" },
+    chest: { tm: "", costuming: "" }, waist: { tm: "", costuming: "" }, hips: { tm: "", costuming: "" },
+    bicep: { tm: "", costuming: "" }, wrist: { tm: "", costuming: "" },
+    updateInfo: { date: "", editor: "—", ssoId: "" },
+  };
+  const [meas, setMeas] = useState<Measurements>(actor.measurements ?? fallbackMeas);
   const [editingMeas, setEditingMeas] = useState(false);
   const [measDraft, setMeasDraft] = useState<Measurements>(meas);
+
+  function saveMeas() {
+    const today = new Date().toISOString().split("T")[0];
+    const next: Measurements = {
+      ...measDraft,
+      updateInfo: { date: today, editor: "Current Casting", ssoId: "30099999" },
+    };
+    setMeas(next);
+    setEditingMeas(false);
+  }
+
+  function downloadMeasurementForm() {
+    const cellsLeft: [string, keyof Measurements][] = [
+      ["Height 身高(cm)", "height"], ["Neck 领围(cm)", "neck"],
+      ["Across Shoulder Back 后肩宽(cm)", "acrossShoulderBack"], ["Chest 胸围(cm)", "chest"], ["Bicep 大臂围(cm)", "bicep"],
+    ];
+    const cellsMid: [string, keyof Measurements][] = [
+      ["Weight 体重(kg)", "weight"], ["Sneaker Size 运动鞋尺码", "sneakerSize"],
+      ["Across Front 前胸宽(cm)", "acrossFront"], ["Waist 腰围(cm)", "waist"], ["Wrist 手腕(cm)", "wrist"],
+    ];
+    const cellsRight: [string, keyof Measurements][] = [
+      ["Bra Size 胸罩罩杯", "braSize"], ["Head Circumference 头围(cm)", "headCircumference"],
+      ["Across Back 后背宽(cm)", "acrossBack"], ["Hips 臀围(cm)", "hips"],
+    ];
+    const headerRow = ["Field", "TM", "Costuming", "", "Field", "TM", "Costuming", "", "Field", "TM", "Costuming"];
+    const rows: (string | number)[][] = [headerRow];
+    const max = Math.max(cellsLeft.length, cellsMid.length, cellsRight.length);
+    for (let i = 0; i < max; i++) {
+      const row: (string | number)[] = [];
+      const groups = [cellsLeft, cellsMid, cellsRight];
+      groups.forEach((g, gi) => {
+        const entry = g[i];
+        if (entry) {
+          const f = meas[entry[1]] as MeasNum | MeasStr;
+          row.push(entry[0], String(f.tm ?? ""), String(f.costuming ?? ""));
+        } else {
+          row.push("", "", "");
+        }
+        if (gi < 2) row.push("");
+      });
+      rows.push(row);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Measurement");
+    XLSX.writeFile(wb, `measurement_${actor.ssoId}.xlsx`);
+  }
 
   // ── Event Experience section ───────────────────────────────────────────
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
@@ -538,7 +962,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
   const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300";
   const labelCls = "block text-xs text-gray-400 mb-1";
 
-  const activeSwingCount = swingRecords.filter((r) => r.status === "active").length;
+  const activeShowRoleCount = showRoleRecords.filter((r) => r.status === "active").length;
   const activeEventCount = eventRecords.filter((r) => r.status === "active").length;
 
   return (
@@ -579,8 +1003,8 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
           {[
             { label: "SSO", value: actor.ssoId, mono: true },
             { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
-            { label: "Height", value: `${meas.height} cm` },
-            { label: "Weight", value: `${meas.weight} kg` },
+            { label: "Height", value: `${meas.height.tm || actor.height} cm` },
+            { label: "Weight", value: `${meas.weight.tm || actor.weight} kg` },
             { label: "Contract End", value: actor.contractEndDate ?? "—" },
           ].map(({ label, value, mono }) => (
             <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
@@ -716,156 +1140,93 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
             )}
           </div>
 
-          {/* ── Show & Role (Home + Swing) ── */}
+          {/* ── Show & Role (unified Home + Swing records) ── */}
           <div className="border-b border-gray-100">
             <SectionHeader
-              title="Show & Role" count={(actor.homeShow ? 1 : 0) + activeSwingCount}
-              editing={addingSwing} collapsed={collapsed.showRole}
+              title="Show & Role" count={activeShowRoleCount}
+              editing={addingShowRole} collapsed={collapsed.showRole}
               onToggleCollapse={() => toggle("showRole")}
-              onAdd={() => setAddingSwing(true)} addLabel="Add Swing"
-              onCancel={() => { setAddingSwing(false); setSwingForm({ showName: "", roleName: "", note: "" }); }}
-              onSave={saveSwing}
+              onAdd={() => setAddingShowRole(true)} addLabel="Add"
+              onCancel={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
+              onSave={saveShowRole}
             />
             {!collapsed.showRole && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Home assignment */}
-                {actor.homeShow && (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50 border border-indigo-100">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-gray-900">{actor.homeShow}</span>
-                        <span className="text-xs text-gray-300">/</span>
-                        <span className="text-xs font-medium text-indigo-600">{actor.homeRole}</span>
-                      </div>
-                      {actor.contractEndDate && <p className="text-xs text-gray-400 mt-0.5">Expires {actor.contractEndDate}</p>}
-                    </div>
-                    <span className="text-xs px-2 py-0.5 bg-indigo-500 text-white rounded-full font-medium flex-shrink-0">Home</span>
-                  </div>
-                )}
-                {/* Add swing form */}
-                {addingSwing && (
-                  <div className="p-3 bg-amber-50 rounded-xl space-y-2 border border-amber-100">
-                    <div className="grid grid-cols-2 gap-2">
+                {/* Add form */}
+                {addingShowRole && (
+                  <div className="p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
+                    <div className="grid grid-cols-3 gap-2">
                       <div><label className={labelCls}>Show</label>
-                        <select value={swingForm.showName} onChange={(e) => setSwingForm((f) => ({ ...f, showName: e.target.value }))} className={inputCls + " bg-white"}>
-                          <option value="">Select</option>
+                        <select value={showRoleForm.show}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, show: e.target.value, role: "" }))}
+                          className={inputCls + " bg-white"}>
+                          <option value="">Please Choose</option>
                           {DATA.flatMap((l) => l.shows).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                         </select>
                       </div>
                       <div><label className={labelCls}>Role</label>
-                        <select value={swingForm.roleName}
-                          onChange={(e) => setSwingForm((f) => ({ ...f, roleName: e.target.value }))}
-                          disabled={!swingForm.showName}
+                        <select value={showRoleForm.role}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, role: e.target.value }))}
+                          disabled={!showRoleForm.show}
                           className={inputCls + " bg-white disabled:opacity-50"}>
-                          <option value="">Select</option>
-                          {DATA.flatMap((l) => l.shows).find((s) => s.name === swingForm.showName)?.roles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                          <option value="">Please Choose</option>
+                          {rolesForFormShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                        </select>
+                      </div>
+                      <div><label className={labelCls}>Role Type</label>
+                        <select value={showRoleForm.roleType}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, roleType: e.target.value as "home" | "swing" }))}
+                          className={inputCls + " bg-white"}>
+                          <option value="home">Home</option>
+                          <option value="swing">Swing</option>
                         </select>
                       </div>
                     </div>
-                    <div><label className={labelCls}>Note</label>
-                      <input value={swingForm.note} onChange={(e) => setSwingForm((f) => ({ ...f, note: e.target.value }))} className={inputCls} placeholder="Optional" />
-                    </div>
                   </div>
                 )}
-                {/* Swing records */}
-                {swingRecords.map((rec) => (
-                  <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${rec.status === "inactive" ? "border-gray-100 opacity-40" : "border-amber-100 bg-amber-50"}`}>
-                    {editingSwingId === rec.id ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div><label className={labelCls}>Show</label>
-                            <select value={editSwingForm.showName} onChange={(e) => setEditSwingForm((f) => ({ ...f, showName: e.target.value }))} className={inputCls + " bg-white"}>
-                              {DATA.flatMap((l) => l.shows).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                            </select>
-                          </div>
-                          <div><label className={labelCls}>Role</label>
-                            <input value={editSwingForm.roleName} onChange={(e) => setEditSwingForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} />
-                          </div>
-                        </div>
-                        <div><label className={labelCls}>Note</label>
-                          <input value={editSwingForm.note} onChange={(e) => setEditSwingForm((f) => ({ ...f, note: e.target.value }))} className={inputCls} />
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => setEditingSwingId(null)} className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600">Cancel</button>
-                          <button onClick={() => saveEditSwing(rec.id)} className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-lg">Save</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-gray-900">{rec.showName}</span>
-                            <span className="text-xs text-gray-300">/</span>
-                            <span className="text-xs font-medium text-amber-700">{rec.roleName}</span>
-                          </div>
-                          {rec.note && <p className="text-xs text-gray-400 mt-0.5">{rec.note}</p>}
-                          <p className="text-xs text-gray-400 mt-0.5">{rec.createdAt}</p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs px-2 py-0.5 bg-amber-400 text-amber-900 rounded-full font-medium">Swing</span>
-                          {rec.status === "active" && (
-                            <>
-                              <button onClick={() => startEditSwing(rec)} className="text-xs text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors">Edit</button>
-                              <button onClick={() => setSwingRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
-                                className="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors">Remove</button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {swingRecords.length === 0 && !addingSwing && !actor.homeShow && (
+                {/* Unified record list */}
+                {showRoleRecords.length === 0 && !addingShowRole && (
                   <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
                 )}
+                {showRoleRecords.map((rec) => {
+                  const inactive = rec.status === "inactive";
+                  return (
+                    <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${inactive ? "border-gray-100 bg-gray-50/40 opacity-50" : (rec.roleType === "home" ? "border-indigo-100 bg-indigo-50/40" : "border-amber-100 bg-amber-50/40")}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold ${rec.roleType === "home" ? "bg-indigo-500 text-white" : "bg-amber-400 text-amber-900"}`}>
+                            {rec.roleType === "home" ? "Home" : "Swing"}
+                          </span>
+                          <span className="text-xs font-semibold text-gray-900 truncate">{rec.show}</span>
+                          <span className="text-xs text-gray-300">/</span>
+                          <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
+                          <span className="text-xs text-gray-400 ml-1 flex-shrink-0">{rec.date}</span>
+                        </div>
+                        {inactive ? (
+                          <span className="text-xs text-gray-300 px-1.5 py-0.5 flex-shrink-0">Removed</span>
+                        ) : (
+                          <button onClick={() => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
+                            className="text-xs text-indigo-500 hover:text-indigo-700 px-1.5 py-0.5 rounded transition-colors flex-shrink-0">Remove</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* ── Measurements ── */}
+          {/* ── Measurement Form (TM vs Costuming) ── */}
           <div className="border-b border-gray-100">
-            <SectionHeader
-              title="Measurements"
+            <MeasurementSection
+              meas={meas} measDraft={measDraft} setMeasDraft={setMeasDraft}
               editing={editingMeas} collapsed={collapsed.measurements}
               onToggleCollapse={() => toggle("measurements")}
               onEdit={() => { setMeasDraft({ ...meas }); setEditingMeas(true); }}
-              onSave={() => { setMeas(measDraft); setEditingMeas(false); }}
+              onSave={saveMeas}
               onCancel={() => setEditingMeas(false)}
+              onDownload={downloadMeasurementForm}
             />
-            {!collapsed.measurements && (
-              <div className="px-5 pb-4">
-                {editingMeas ? (
-                  <div className="grid grid-cols-3 gap-3">
-                    {([
-                      ["Height (cm)", "height"], ["Weight (kg)", "weight"], ["Chest (cm)", "chest"],
-                      ["Waist (cm)", "waist"], ["Hip (cm)", "hip"], ["Inseam (cm)", "inseam"],
-                      ["Shoe Size (EU)", "shoeSize"],
-                    ] as [string, keyof Measurements][]).map(([lbl, key]) => (
-                      <div key={key}>
-                        <label className={labelCls}>{lbl}</label>
-                        <input type="number" value={measDraft[key]}
-                          onChange={(e) => setMeasDraft((p) => ({ ...p, [key]: +e.target.value }))}
-                          className={inputCls} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["Height", `${meas.height} cm`], ["Weight", `${meas.weight} kg`],
-                      ["Chest", `${meas.chest} cm`], ["Waist", `${meas.waist} cm`],
-                      ["Hip", `${meas.hip} cm`], ["Inseam", `${meas.inseam} cm`],
-                      ["Shoe Size", `EU ${meas.shoeSize}`],
-                    ] as [string, string][]).map(([lbl, val]) => (
-                      <div key={lbl} className="bg-gray-50 rounded-lg p-2.5">
-                        <p className="text-[10px] text-gray-400 mb-0.5">{lbl}</p>
-                        <p className="text-xs font-semibold text-gray-800">{val}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Event Experience ── */}
@@ -1082,33 +1443,82 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Cast Assign Dialog ─────────────────────────────────────────────────────
+// ── Batch Assign Role Dialog ───────────────────────────────────────────────
 
-function CastDialog({ show, role, onClose }: { show: Show; role: Role; onClose: () => void }) {
-  const [sso, setSso] = useState("");
-  const [type, setType] = useState("home");
+interface AssignTarget {
+  ids: number[];
+  defaultShow?: string;
+  defaultRole?: string;
+  defaultRoleType?: "home" | "swing";
+}
+
+function BatchAssignDialog({ target, onClose, onSubmit }: {
+  target: AssignTarget; onClose: () => void; onSubmit: (params: {
+    ids: number[]; assignToType: "regular" | "special"; show: string; role: string; castType: "home" | "swing";
+  }) => void;
+}) {
+  const [assignToType, setAssignToType] = useState<"regular" | "special">("regular");
+  const [show, setShow] = useState(target.defaultShow ?? "");
+  const [role, setRole] = useState(target.defaultRole ?? "");
+  const [castType, setCastType] = useState<"home" | "swing">(target.defaultRoleType ?? "home");
+
+  const rolesForShow = ALL_SHOWS.find((s) => s.name === show)?.roles ?? [];
+  const canSave = (assignToType === "special") || (!!show && !!role);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="font-semibold text-gray-900">Assign Cast</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{show.name} / {role.name}</p>
-          </div>
+          <h2 className="font-semibold text-gray-900">
+            Batch Assign for {target.ids.length} Performer{target.ids.length === 1 ? "" : "s"}
+          </h2>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">SSO ID(s)</label>
-            <input type="text" value={sso} onChange={(e) => setSso(e.target.value)} placeholder="Enter SSOs, space-separated"
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
+            <div className="flex items-center gap-5">
+              {([
+                ["regular", "Regular Show"],
+                ["special", "Special Event"],
+              ] as const).map(([val, lbl]) => (
+                <label key={val} className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-indigo-500" />
+                  <span className="text-sm text-gray-700">{lbl}</span>
+                </label>
+              ))}
+            </div>
           </div>
+
+          {assignToType === "regular" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
+                <select value={show} onChange={(e) => { setShow(e.target.value); setRole(""); }}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700">
+                  <option value="">Please Choose</option>
+                  {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+                <select value={role} onChange={(e) => setRole(e.target.value)} disabled={!show}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 disabled:opacity-50">
+                  <option value="">Please Choose</option>
+                  {rolesForShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Cast Type</label>
             <div className="flex gap-2">
-              {[["home", "Home Cast"], ["swing", "Swing Cast"]].map(([val, lbl]) => (
-                <button key={val} onClick={() => setType(val)}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${type === val ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              {([
+                ["home", "Home Cast"], ["swing", "Swing Cast"],
+              ] as const).map(([val, lbl]) => (
+                <button key={val} onClick={() => setCastType(val)}
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                   {lbl}
                 </button>
               ))}
@@ -1117,7 +1527,8 @@ function CastDialog({ show, role, onClose }: { show: Show; role: Role; onClose: 
         </div>
         <div className="flex justify-end gap-3 px-6 pb-5">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} className="px-5 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors">Assign</button>
+          <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
+            className="px-5 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 disabled:opacity-40 transition-colors">Save</button>
         </div>
       </div>
     </div>
@@ -1186,46 +1597,60 @@ function VacancyCard({ index, onAssign }: { index: number; onAssign: () => void 
 function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, showUnassigned }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
-  onCast: () => void; showUnassigned: boolean;
+  onCast: (ids: number[]) => void; showUnassigned: boolean;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFilter, setShowFilter] = useState(false);
-  const [filterNationality, setFilterNationality] = useState("");
-  const [filterHeight, setFilterHeight] = useState("");
-  const [showAssignFromFilter, setShowAssignFromFilter] = useState(false);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
+
+  function updateFilters(next: Filters) {
+    setFilters(next);
+    setPage(1);
+  }
 
   function toggleSelect(id: number) {
     setSelectedIds((p) => {
       const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
   }
 
   if (showUnassigned) {
-    const unassigned = PERFORMERS.filter((p) => !p.homeShow);
+    const unassignedAll = PERFORMERS.filter((p) => !p.homeShow);
+    const unassigned = unassignedAll.filter((p) => actorMatchesFilters(p, filters));
     const totalPages = Math.max(1, Math.ceil(unassigned.length / pageSize));
     const safeP = Math.min(page, totalPages);
     const pageItems = unassigned.slice((safeP - 1) * pageSize, safeP * pageSize);
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto px-6 pt-5 pb-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Unassigned Performers</h2>
-              <p className="text-xs text-gray-400 mt-0.5">{unassigned.length} performers without a home show/role</p>
+              <h2 className="text-lg font-bold text-gray-900">Unassigned</h2>
+              <p className="text-xs text-gray-400 mt-0.5">{unassignedAll.length} performers without a home show/role</p>
             </div>
-            {selectedIds.size > 0 && (
-              <button onClick={onCast}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
-                <Users className="w-4 h-4" />Assign Role ({selectedIds.size})
-              </button>
-            )}
+            <button onClick={() => setShowFilter((p) => !p)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              <Filter className="w-4 h-4" />Filter
+              {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+            </button>
           </div>
+          {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <span className="text-xs text-indigo-700 font-medium">已选择{selectedIds.size}项</span>
+              <button onClick={() => { onCast(Array.from(selectedIds)); }}
+                className="px-3.5 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-colors">
+                Assign Role
+              </button>
+            </div>
+          )}
           {unassigned.length === 0 ? (
-            <p className="text-sm text-gray-300 py-8 text-center">All performers are assigned</p>
+            <p className="text-sm text-gray-300 py-8 text-center">{unassignedAll.length === 0 ? "All performers are assigned" : "No performers match the filters"}</p>
           ) : (
             <div className="grid grid-cols-6 gap-3">
               {pageItems.map((a, i) => (
@@ -1255,16 +1680,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   const allActors = castTab === "home" ? selectedRole.homeActors : selectedRole.swingActors;
   const vacancy = castTab === "home" ? Math.max(0, selectedRole.headCount - selectedRole.homeActors.length) : 0;
 
-  const filteredActors = allActors.filter((a) => {
-    if (filterNationality && a.nationality !== filterNationality) return false;
-    if (filterHeight) {
-      if (filterHeight === "lt165" && a.height >= 165) return false;
-      if (filterHeight === "165-170" && (a.height < 165 || a.height >= 170)) return false;
-      if (filterHeight === "170-175" && (a.height < 170 || a.height >= 175)) return false;
-      if (filterHeight === "gt175" && a.height < 175) return false;
-    }
-    return true;
-  });
+  const filteredActors = allActors.filter((a) => actorMatchesFilters(a, filters));
 
   const allItems = castTab === "home"
     ? [...filteredActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i })),
@@ -1276,61 +1692,39 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   const safeP = Math.min(page, totalPages);
   const pageItems = allItems.slice((safeP - 1) * pageSize, safeP * pageSize);
 
-  const nationalities = [...new Set(allActors.map((a) => a.nationality))].sort();
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
         <div className="px-6 pt-5 pb-4">
-          {/* Role header */}
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">{selectedShow.name}</p>
-              <h2 className="text-lg font-bold text-gray-900">{selectedRole.name}</h2>
+          {/* Breadcrumb */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-base">
+              <span className="text-gray-500">Regular Show</span>
+              <span className="text-gray-300 mx-2">/</span>
+              <span className="text-gray-500">{selectedShow.name}</span>
+              <span className="text-gray-300 mx-2">/</span>
+              <span className="text-gray-900 font-semibold">{selectedRole.name}</span>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setShowFilter((p) => !p)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 <Filter className="w-4 h-4" />Filter
-                {(filterNationality || filterHeight) && <span className="w-2 h-2 bg-indigo-500 rounded-full" />}
+                {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              {selectedIds.size > 0 ? (
-                <button onClick={onCast}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
-                  <Users className="w-4 h-4" />Assign ({selectedIds.size})
-                </button>
-              ) : (
-                <button onClick={onCast}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
-                  <Users className="w-4 h-4" />Assign Cast
-                </button>
-              )}
+              <button onClick={() => onCast(Array.from(selectedIds))}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
+                <Users className="w-4 h-4" />{selectedIds.size > 0 ? `Assign Role (${selectedIds.size})` : "Assign Cast"}
+              </button>
             </div>
           </div>
 
           {/* Filter panel */}
-          {showFilter && (
-            <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3 flex-wrap">
-              <select value={filterNationality} onChange={(e) => { setFilterNationality(e.target.value); setPage(1); }}
-                className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700">
-                <option value="">All Nationalities</option>
-                {nationalities.map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-              <select value={filterHeight} onChange={(e) => { setFilterHeight(e.target.value); setPage(1); }}
-                className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700">
-                <option value="">All Heights</option>
-                <option value="lt165">&lt; 165 cm</option>
-                <option value="165-170">165–170 cm</option>
-                <option value="170-175">170–175 cm</option>
-                <option value="gt175">&gt; 175 cm</option>
-              </select>
-              {(filterNationality || filterHeight) && (
-                <button onClick={() => { setFilterNationality(""); setFilterHeight(""); setPage(1); }}
-                  className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white transition-colors">
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <span className="text-xs text-gray-400 ml-auto">{filteredActors.length} / {allActors.length} shown</span>
+          {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
+
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <span className="text-xs text-indigo-700 font-medium">已选择{selectedIds.size}项</span>
+              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
             </div>
           )}
 
@@ -1378,7 +1772,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
                       roleLabel={`${selectedShow.name} / ${selectedRole.name}`}
                       selected={selectedIds.has(item.actor.id)}
                       onSelect={() => toggleSelect(item.actor.id)} />
-                  : <VacancyCard key={`v-${item.vacantIndex}`} index={item.vacantIndex} onAssign={onCast} />
+                  : <VacancyCard key={`v-${item.vacantIndex}`} index={item.vacantIndex} onAssign={() => onCast([])} />
               )}
             </div>
           )}
@@ -1406,52 +1800,32 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
   );
 }
 
-function RosterView({ onImport }: { onImport: () => void }) {
+function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
+  onImport: () => void;
+  selectedShow: Show | null; selectedRole: Role | null; showUnassigned: boolean;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [drawerActor, setDrawerActor] = useState<Actor | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [showFilter, setShowFilter] = useState(false);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  const [q, setQ] = useState("");
-  const [filterShow, setFilterShow] = useState("");
-  const [filterRole, setFilterRole] = useState("");
-  const [filterSkillType, setFilterSkillType] = useState("");
-  const [filterHeight, setFilterHeight] = useState("");
-  const [filterEvent, setFilterEvent] = useState("");
-
-  const allShowNames = DATA.flatMap((l) => l.shows).map((s) => s.name);
-  const rolesForShow = DATA.flatMap((l) => l.shows).find((s) => s.name === filterShow)?.roles.map((r) => r.name) ?? [];
+  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
 
   function handleSort(k: SortKey) {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setSortDir("asc"); }
   }
 
-  function reset() {
-    setQ(""); setFilterShow(""); setFilterRole(""); setFilterSkillType("");
-    setFilterHeight(""); setFilterEvent(""); setSortKey(null); setPage(1);
+  function updateFilters(next: Filters) {
+    setFilters(next);
+    setPage(1);
   }
 
-  const filtered = useMemo(() => {
-    let result = PERFORMERS;
-    if (q) { const lq = q.toLowerCase(); result = result.filter((p) => p.name.toLowerCase().includes(lq) || p.ssoId.includes(lq)); }
-    if (filterShow) result = result.filter((p) => p.homeShow === filterShow);
-    if (filterRole) result = result.filter((p) => p.homeRole === filterRole);
-    if (filterSkillType) result = result.filter((p) => p.skillEntries?.some((e) => e.type === filterSkillType));
-    if (filterHeight) {
-      result = result.filter((p) => {
-        if (filterHeight === "lt165") return p.height < 165;
-        if (filterHeight === "165-170") return p.height >= 165 && p.height < 170;
-        if (filterHeight === "170-175") return p.height >= 170 && p.height < 175;
-        if (filterHeight === "gt175") return p.height >= 175;
-        return true;
-      });
-    }
-    if (filterEvent === "has") result = result.filter((p) => (p.eventRecords?.filter((e) => e.status === "active").length ?? 0) > 0);
-    if (filterEvent === "none") result = result.filter((p) => (p.eventRecords?.filter((e) => e.status === "active").length ?? 0) === 0);
-    return result;
-  }, [q, filterShow, filterRole, filterSkillType, filterHeight, filterEvent]);
+  const filtered = useMemo(() => PERFORMERS.filter((p) => actorMatchesFilters(p, filters)), [filters]);
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -1466,7 +1840,23 @@ function RosterView({ onImport }: { onImport: () => void }) {
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safeP = Math.min(page, totalPages);
   const pageRows = sorted.slice((safeP - 1) * pageSize, safeP * pageSize);
-  const hasFilters = !!(q || filterShow || filterRole || filterSkillType || filterHeight || filterEvent);
+
+  const allSelected = pageRows.length > 0 && pageRows.every((p) => selectedIds.has(p.id));
+  function toggleAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) pageRows.forEach((p) => next.delete(p.id));
+      else pageRows.forEach((p) => next.add(p.id));
+      return next;
+    });
+  }
+  function toggleOne(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -1475,121 +1865,88 @@ function RosterView({ onImport }: { onImport: () => void }) {
           onClose={() => setDrawerActor(null)} />
       )}
 
-      {/* Filter bar */}
-      <div className="bg-white border-b border-gray-100 px-5 py-2.5 flex items-center gap-2 flex-wrap">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
-          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="SSO or Name"
-            className="h-8 pl-8 pr-3 border border-gray-200 rounded-lg text-xs w-40 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
+      {/* Breadcrumb + action bar */}
+      <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-3">
+        <div className="text-base">
+          {showUnassigned ? (
+            <span className="text-gray-900 font-semibold">Unassigned</span>
+          ) : (
+            <>
+              <span className="text-gray-500">Regular Show</span>
+              {selectedShow && (<><span className="text-gray-300 mx-2">/</span><span className="text-gray-500">{selectedShow.name}</span></>)}
+              {selectedRole && (<><span className="text-gray-300 mx-2">/</span><span className="text-gray-900 font-semibold">{selectedRole.name}</span></>)}
+            </>
+          )}
         </div>
-        <select value={filterShow} onChange={(e) => { setFilterShow(e.target.value); setFilterRole(""); setPage(1); }}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-28">
-          <option value="">All Shows</option>
-          {allShowNames.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        <select value={filterRole} onChange={(e) => { setFilterRole(e.target.value); setPage(1); }} disabled={!filterShow}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-36 disabled:opacity-40">
-          <option value="">All Roles</option>
-          {rolesForShow.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        <select value={filterSkillType} onChange={(e) => { setFilterSkillType(e.target.value); setPage(1); }}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-28">
-          <option value="">All Skills</option>
-          {SKILLSET_CATEGORIES.map((c) => <option key={c.type} value={c.type}>{c.type}</option>)}
-        </select>
-        <select value={filterHeight} onChange={(e) => { setFilterHeight(e.target.value); setPage(1); }}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-32">
-          <option value="">All Heights</option>
-          <option value="lt165">&lt; 165 cm</option>
-          <option value="165-170">165 – 170 cm</option>
-          <option value="170-175">170 – 175 cm</option>
-          <option value="gt175">&gt; 175 cm</option>
-        </select>
-        <select value={filterEvent} onChange={(e) => { setFilterEvent(e.target.value); setPage(1); }}
-          className="h-8 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 w-36">
-          <option value="">All Experience</option>
-          <option value="has">Has Event Exp.</option>
-          <option value="none">No Event Exp.</option>
-        </select>
-        {hasFilters && (
-          <button onClick={reset} className="h-8 w-8 flex items-center justify-center border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <span className="text-xs text-gray-400 ml-auto">{sorted.length} performers</span>
-        <button onClick={onImport} className="h-8 flex items-center gap-1.5 px-3 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-colors">
-          <Upload className="w-3.5 h-3.5" />Import
+        <button onClick={() => setShowFilter((p) => !p)}
+          className={`ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+          <Filter className="w-4 h-4" />Filter
+          {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+        </button>
+        <span className="text-xs text-gray-400">{sorted.length} performers</span>
+        <button onClick={onImport} className="ml-auto h-9 flex items-center gap-1.5 px-4 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors">
+          <Upload className="w-3.5 h-3.5" />Upload
         </button>
       </div>
+
+      {showFilter && (
+        <div className="px-5 pt-4 bg-gray-50">
+          <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-              <th className="w-12 px-4 py-3" />
-              <th className="text-left px-4 py-3 font-semibold">Full Name</th>
+              <th className="w-12 px-4 py-3">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                  className="w-4 h-4 rounded border-gray-300 accent-indigo-500" />
+              </th>
+              <th className="text-left px-4 py-3 font-semibold">Name</th>
               <th className="text-left px-4 py-3 font-semibold">SSO</th>
               <th className="text-left px-4 py-3 font-semibold">Nationality</th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
                 Height <SortBtn col="height" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
+              <th className="text-left px-4 py-3 font-semibold">Current Home Show &amp; Role</th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
-                Weight <SortBtn col="weight" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                Contract end date <SortBtn col="contractEndDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
-              <th className="text-left px-4 py-3 font-semibold">Skillset</th>
-              <th className="text-left px-4 py-3 font-semibold">Show / Role</th>
-              <th className="text-left px-4 py-3 font-semibold">Event Exp.</th>
-              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
-                Contract End <SortBtn col="contractEndDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold">Actions</th>
+              <th className="text-left px-4 py-3 font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-50">
             {pageRows.length === 0 && (
-              <tr><td colSpan={11} className="text-center py-16 text-gray-300 text-sm">No performers found</td></tr>
+              <tr><td colSpan={8} className="text-center py-16 text-gray-300 text-sm">No performers found</td></tr>
             )}
-            {pageRows.map((p) => {
-              const evCount = p.eventRecords?.filter((e) => e.status === "active").length ?? 0;
-              return (
-                <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-                  <td className="px-4 py-3">
-                    <img src={p.photoUrl} alt={p.name} className="w-9 h-9 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{p.name}</td>
-                  <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.flag} {p.nationality}</td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.height} cm</td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.weight} kg</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1 max-w-[180px]">
-                      {(p.skillEntries ?? []).slice(0, 3).map((e) => (
-                        <span key={e.id} className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${SKILL_TAG_COLORS[e.type] ?? "bg-gray-100 text-gray-600"}`}>
-                          {e.skill}
-                        </span>
-                      ))}
-                      {(p.skillEntries?.length ?? 0) > 3 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">+{(p.skillEntries?.length ?? 0) - 3}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                    {p.homeShow ? <><span className="font-medium text-indigo-600">{p.homeShow}</span> / {p.homeRole}</> : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    {evCount > 0
-                      ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-green-50 text-green-700 rounded-full font-medium">{evCount} events</span>
-                      : <span className="text-xs text-gray-300">—</span>
-                    }
-                  </td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <button onClick={() => setDrawerActor(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
-                  </td>
-                </tr>
-              );
-            })}
+            {pageRows.map((p) => (
+              <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleOne(p.id)}
+                      className="w-4 h-4 rounded border-gray-300 accent-indigo-500" />
+                  </div>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-2.5">
+                    <img src={p.photoUrl} alt={p.name} className="w-8 h-8 rounded-full object-cover object-top ring-1 ring-gray-100" />
+                    <span className="font-medium text-gray-900">{p.name}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.flag} {p.nationality}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.height}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                  {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-800">{p.homeRole}</span></> : "—"}
+                </td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <button onClick={() => setDrawerActor(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1622,22 +1979,141 @@ function exportReport() {
   XLSX.writeFile(wb, "casting_book_report.xlsx");
 }
 
+// ── Left Sidebar ───────────────────────────────────────────────────────────
+
+function LeftSidebar({
+  viewMode, onChangeViewMode,
+  selectedShowId, selectedRoleId, showUnassigned,
+  onSelectUnassigned, onSelectShow, onSelectRole,
+}: {
+  viewMode: ViewMode; onChangeViewMode: (m: ViewMode) => void;
+  selectedShowId: string; selectedRoleId: string | null; showUnassigned: boolean;
+  onSelectUnassigned: () => void;
+  onSelectShow: (showId: string) => void;
+  onSelectRole: (showId: string, roleId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [expandedShowIds, setExpandedShowIds] = useState<Set<string>>(() => new Set([selectedShowId]));
+  const [regularExpanded, setRegularExpanded] = useState(true);
+  const [specialExpanded, setSpecialExpanded] = useState(false);
+
+  const unassignedCount = PERFORMERS.filter((p) => !p.homeShow).length;
+  const allShows = DATA.flatMap((l) => l.shows);
+  const regularShowTotal = allShows.reduce((sum, s) => sum + s.roles.reduce((rs, r) => rs + r.homeActors.length, 0), 0);
+
+  const matchesSearch = (text: string) => !search || text.toLowerCase().includes(search.toLowerCase());
+
+  function toggleExpand(showId: string) {
+    setExpandedShowIds((p) => {
+      const n = new Set(p);
+      if (n.has(showId)) n.delete(showId); else n.add(showId);
+      return n;
+    });
+  }
+
+  return (
+    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+      {/* View Mode Selector */}
+      <div className="px-3 py-3 border-b border-gray-100">
+        <div className="relative">
+          <select value={viewMode} onChange={(e) => onChangeViewMode(e.target.value as ViewMode)}
+            className="w-full h-9 pl-9 pr-8 border border-gray-200 rounded-lg text-sm font-medium text-indigo-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-200">
+            <option value="card">View by Card</option>
+            <option value="roster">View by Roster</option>
+          </select>
+          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none">
+            {viewMode === "card" ? <LayoutGrid className="w-4 h-4" /> : <List className="w-4 h-4" />}
+          </div>
+          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 py-2 border-b border-gray-100">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="请输入SSO/姓名"
+          className="w-full h-8 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
+        {/* Unassigned */}
+        <button onClick={onSelectUnassigned}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors ${showUnassigned ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
+          <span>Unassigned</span>
+          <span className={`text-xs ${showUnassigned ? "text-indigo-600" : "text-gray-400"}`}>({unassignedCount})</span>
+        </button>
+
+        {/* Regular Show group */}
+        <div className="mt-2">
+          <button onClick={() => setRegularExpanded((p) => !p)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-indigo-700 font-bold hover:bg-gray-50 transition-colors">
+            <span>Regular Show <span className="text-gray-500 font-normal text-xs">({regularShowTotal})</span></span>
+            {regularExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+          </button>
+          {regularExpanded && allShows.map((show) => {
+            const showCount = show.roles.reduce((s, r) => s + r.homeActors.length, 0);
+            const expanded = expandedShowIds.has(show.id);
+            const showMatches = matchesSearch(show.name);
+            const matchingRoles = show.roles.filter((r) => showMatches || matchesSearch(r.name));
+            if (search && !showMatches && matchingRoles.length === 0) return null;
+            const isShowSelected = show.id === selectedShowId && !showUnassigned && selectedRoleId === null;
+            return (
+              <div key={show.id}>
+                <button onClick={() => { onSelectShow(show.id); toggleExpand(show.id); }}
+                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${isShowSelected ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
+                  <span className="flex items-center gap-1.5">
+                    <span>{show.name}</span>
+                    <span className={`text-xs ${isShowSelected ? "text-indigo-500" : "text-gray-400"}`}>({showCount})</span>
+                  </span>
+                  {show.roles.length > 0 && (expanded
+                    ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                    : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />)}
+                </button>
+                {expanded && matchingRoles.map((role) => {
+                  const isRoleSelected = role.id === selectedRoleId && !showUnassigned;
+                  return (
+                    <button key={role.id} onClick={() => onSelectRole(show.id, role.id)}
+                      className={`w-full flex items-center justify-between pl-12 pr-3 py-1.5 rounded-lg text-left text-xs transition-colors ${isRoleSelected ? "bg-indigo-100 text-indigo-700 font-semibold" : "text-gray-600 hover:bg-gray-50"}`}>
+                      <span>{role.name}</span>
+                      <span className={`${isRoleSelected ? "text-indigo-500" : "text-gray-400"}`}>({role.homeActors.length})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Special Event */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <button onClick={() => setSpecialExpanded((p) => !p)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-gray-700 font-bold hover:bg-gray-50 transition-colors">
+            <span>Special Event</span>
+            {specialExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+          </button>
+          {specialExpanded && (
+            <p className="px-6 py-2 text-xs text-gray-300">No special events</p>
+          )}
+        </div>
+      </nav>
+    </aside>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 type ViewMode = "card" | "roster";
 
 export default function CastingBookPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("card");
-  const [selectedLandId, setSelectedLandId] = useState(DATA[0].id);
   const [selectedShowId, setSelectedShowId] = useState<string>(DATA[0].shows[0].id);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
-  const [showCastDialog, setShowCastDialog] = useState(false);
+  const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const land = useMemo(() => DATA.find((l) => l.id === selectedLandId) ?? DATA[0], [selectedLandId]);
-  const selectedShow = useMemo(() => land.shows.find((s) => s.id === selectedShowId) ?? null, [land, selectedShowId]);
+  const allShowsFlat = useMemo(() => DATA.flatMap((l) => l.shows), []);
+  const selectedShow = useMemo(() => allShowsFlat.find((s) => s.id === selectedShowId) ?? null, [allShowsFlat, selectedShowId]);
   const selectedRole = useMemo(() => selectedRoleId ? selectedShow?.roles.find((r) => r.id === selectedRoleId) ?? null : null, [selectedShow, selectedRoleId]);
 
   function selectShow(showId: string) { setSelectedShowId(showId); setSelectedRoleId(null); setCastTab("home"); setShowUnassigned(false); }
@@ -1651,94 +2127,46 @@ export default function CastingBookPage() {
           <BookOpen className="w-5 h-5 text-indigo-500" />
           <span className="font-bold text-gray-900 text-base">Casting Book</span>
         </div>
-
-        <div className="flex items-center gap-1 ml-6">
-          {DATA.map((l) => (
-            <button key={l.id} onClick={() => { setSelectedLandId(l.id); setSelectedShowId(l.shows[0].id); setSelectedRoleId(null); setShowUnassigned(false); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${selectedLandId === l.id ? "bg-indigo-50 text-indigo-700" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`}>
-              {l.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={exportReport}
-            className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-            <Download className="w-3.5 h-3.5" />Export Report
-          </button>
-          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
-            {([
-              ["card", "View by Card", LayoutGrid],
-              ["roster", "View by Roster", List],
-            ] as [ViewMode, string, React.ElementType][]).map(([mode, label, Icon]) => (
-              <button key={mode} onClick={() => setViewMode(mode)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${viewMode === mode ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                <Icon className="w-3.5 h-3.5" />{label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <button onClick={exportReport}
+          className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">
+          <Download className="w-3.5 h-3.5" />Export Report
+        </button>
       </header>
 
-      {/* Show & Role nav (card mode only) */}
-      {viewMode === "card" && (
-        <div className="bg-white border-b border-gray-100 flex-shrink-0">
-          <div className="px-5 pt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-            {land.shows.map((show) => {
-              const active = show.id === selectedShowId && !showUnassigned;
-              const home = show.roles.reduce((s, r) => s + r.homeActors.length, 0);
-              return (
-                <button key={show.id} onClick={() => selectShow(show.id)}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-t-xl text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${active ? "border-indigo-500 text-indigo-700 bg-indigo-50/50" : "border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`}>
-                  {show.name}
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${active ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-500"}`}>{home}</span>
-                </button>
-              );
-            })}
-            {/* Unassigned tab */}
-            <button onClick={() => { setShowUnassigned(true); setSelectedRoleId(null); }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-t-xl text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${showUnassigned ? "border-orange-400 text-orange-600 bg-orange-50/50" : "border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`}>
-              Unassigned
-              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${showUnassigned ? "bg-orange-100 text-orange-600" : "bg-gray-100 text-gray-500"}`}>
-                {PERFORMERS.filter((p) => !p.homeShow).length}
-              </span>
-            </button>
-          </div>
-
-          {selectedShow && !showUnassigned && (
-            <div className="px-5 pb-3 pt-2 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-              {selectedShow.roles.map((role) => {
-                const active = selectedRoleId === role.id;
-                const vacancy = Math.max(0, role.headCount - role.homeActors.length);
-                return (
-                  <button key={role.id} onClick={() => selectRole(role.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${active ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                    {role.name}
-                    <span className={`text-xs ${active ? "text-indigo-200" : "text-gray-400"}`}>{role.homeActors.length}/{role.headCount}</span>
-                    {vacancy > 0 && (
-                      <span className={`text-xs font-bold px-1 rounded ${active ? "bg-white/20 text-white" : "bg-red-100 text-red-500"}`}>-{vacancy}</span>
-                    )}
-                  </button>
-                );
+      {/* Sidebar + Main Content (left-right layout) */}
+      <div className="flex-1 min-h-0 flex">
+        <LeftSidebar
+          viewMode={viewMode}
+          onChangeViewMode={(m) => setViewMode(m)}
+          selectedShowId={selectedShowId}
+          selectedRoleId={selectedRoleId}
+          showUnassigned={showUnassigned}
+          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedRoleId(null); }}
+          onSelectShow={(showId) => selectShow(showId)}
+          onSelectRole={(showId, roleId) => { setSelectedShowId(showId); selectRole(roleId); }}
+        />
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {viewMode === "card" && (
+            <CardView selectedShow={selectedShow} selectedRole={selectedRole}
+              castTab={castTab} setCastTab={setCastTab}
+              onCast={(ids) => setAssignTarget({
+                ids,
+                defaultShow: selectedShow?.name,
+                defaultRole: selectedRole?.name,
+                defaultRoleType: castTab,
               })}
-            </div>
+              showUnassigned={showUnassigned} />
           )}
+          {viewMode === "roster" && <RosterView onImport={() => setShowImportModal(true)} selectedShow={selectedShow} selectedRole={selectedRole} showUnassigned={showUnassigned} />}
         </div>
-      )}
-
-      {/* Main Content */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {viewMode === "card" && (
-          <CardView selectedShow={selectedShow} selectedRole={selectedRole}
-            castTab={castTab} setCastTab={setCastTab}
-            onCast={() => setShowCastDialog(true)}
-            showUnassigned={showUnassigned} />
-        )}
-        {viewMode === "roster" && <RosterView onImport={() => setShowImportModal(true)} />}
       </div>
 
-      {showCastDialog && selectedShow && selectedRole && (
-        <CastDialog show={selectedShow} role={selectedRole} onClose={() => setShowCastDialog(false)} />
+      {assignTarget && (
+        <BatchAssignDialog
+          target={assignTarget}
+          onClose={() => setAssignTarget(null)}
+          onSubmit={() => setAssignTarget(null)}
+        />
       )}
       {showImportModal && <RosterImportModal onClose={() => setShowImportModal(false)} />}
     </div>
