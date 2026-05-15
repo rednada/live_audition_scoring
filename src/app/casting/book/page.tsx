@@ -41,7 +41,9 @@ interface Actor {
   employeeClass?: string;
   idPassportEndDate?: string;
   height: number; weight: number; photoUrl: string;
-  homeShow?: string; homeRole?: string; contractEndDate?: string;
+  homeShow?: string; homeRole?: string;
+  offerShow?: string; offerRole?: string;
+  contractStartDate?: string; contractEndDate?: string;
   skillEntries?: SkillEntry[];
   mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
   measurements?: Measurements; attachments?: Attachment[];
@@ -111,8 +113,6 @@ const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "me
 const CONTRACT_DATES = ["2024-11-03", "2025-08-11", "2025-03-22", "2025-06-15", "2026-01-01", "2025-12-31", "2026-03-15", "2025-09-30"];
 const SWING_SHOWS = ["UOP", "UCHMMG", "TSMMG", "RPTEA", "PL"];
 const SWING_ROLES = ["Parade Wushu", "Dragon Dance", "Ollivanders", "Raptor Encounter", "Main Stage Cast", "Fan Dance", "Frog Choir", "Stilt Walkers"];
-const EVENT_NAMES = ["Summer Spectacular", "Christmas Parade", "Halloween Night", "Grand Opening Gala", "Anniversary Show", "VIP Preview Night", "Media Day", "Charity Event"];
-const EVENT_ROLE_POOL = ["Lead Performer", "Ensemble", "Character", "Stunt Double", "Aerial Artist", "Host"];
 const ATTACHMENT_NAMES = ["Resume_2024.pdf", "Headshot_2023.pdf", "Demo_Reel.mp4", "Contract.pdf", "Portfolio.pdf"];
 const MEDIA_NOTES = ["Front pose, natural lighting", "Character makeup rehearsal", "Training reel clip", "Stage performance", "", "", "Showcase 2024", ""];
 
@@ -197,6 +197,7 @@ function genActors(seed: number, count: number): Actor[] {
       gender: pool.gender,
       height, weight,
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
+      skillEntries: genSkillEntries(seed * 100 + i),
       measurements: genMeasurements(seed * 100 + i, height, weight),
       attachments: genAttachments(seed * 100 + i),
     };
@@ -232,10 +233,12 @@ function genEventRecords(seed: number): EventRecord[] {
     const duration = (dHash(seed * 19 + i) % 90) + 3;
     const startMs = Date.now() - daysAgoStart * 86400000;
     const endMs = startMs + duration * 86400000;
+    const eventOpt = EVENT_OPTIONS[h % EVENT_OPTIONS.length];
+    const roleIdx = dHash(seed * 7 + i) % eventOpt.roles.length;
     return {
       id: `ev-${seed}-${i}`,
-      eventName: EVENT_NAMES[h % EVENT_NAMES.length],
-      roleName: EVENT_ROLE_POOL[dHash(seed * 7 + i) % EVENT_ROLE_POOL.length],
+      eventName: eventOpt.event,
+      roleName: eventOpt.roles[roleIdx],
       startDate: new Date(startMs).toISOString().split("T")[0],
       endDate: new Date(endMs).toISOString().split("T")[0],
       status: (h % 5 === 0 ? "inactive" : "active") as "active" | "inactive",
@@ -298,6 +301,17 @@ const DATA: Land[] = [{
   ],
 }];
 
+// ── Event Experience preset enum (per 0514 doc) ──────────────────────────
+const EVENT_OPTIONS: { event: string; roles: string[] }[] = [
+  { event: "2025 Hua Pi", roles: ["纸扎人", "黑白无常", "打更人", "狐妖"] },
+  { event: "2025 House NO.81", roles: ["导演", "浴缸鬼", "马桶鬼"] },
+  { event: "2006 Spring", roles: ["Kevin", "Bob", "Stuart", "Alex"] },
+];
+const EVENT_NAME_LIST = EVENT_OPTIONS.map((e) => e.event);
+function rolesForEvent(name: string): string[] {
+  return EVENT_OPTIONS.find((e) => e.event === name)?.roles ?? [];
+}
+
 const SHOW_ROLE_PAIRS = [
   { show: "UOP", role: "Parade Wushu" }, { show: "UOP", role: "Parade Viper" },
   { show: "UOP", role: "Dragon Dance" }, { show: "UCHMMG", role: "Ollivanders" },
@@ -331,6 +345,8 @@ function genPerformer(seed: number): Actor {
   const height = 160 + (dHash(seed) % 26);
   const weight = 48 + (dHash(seed * 2) % 35);
   const contractEndDate = CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
+  const contractStartDate = CONTRACT_DATES[dHash(seed * 47) % CONTRACT_DATES.length];
+  const offerPair = SHOW_ROLE_PAIRS[dHash(seed * 53) % SHOW_ROLE_PAIRS.length];
   return {
     id: 9000 + seed, ssoId: `2001${String(7000 + dHash(seed * 19) % 3000)}`,
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
@@ -340,7 +356,8 @@ function genPerformer(seed: number): Actor {
     height, weight,
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
-    contractEndDate,
+    offerShow: offerPair.show, offerRole: offerPair.role,
+    contractStartDate, contractEndDate,
     skillEntries: genSkillEntries(seed),
     mediaFiles,
     showRoleRecords: genShowRoleRecords(seed, pair.show, pair.role, contractEndDate),
@@ -363,7 +380,7 @@ function Paginator({ page, totalPages, pageSize, pageSizeOptions, totalItems, on
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <span>{totalItems} total</span>
         <select value={pageSize} onChange={(e) => { onPageSizeChange(+e.target.value); onPageChange(1); }}
-          className="h-7 px-1.5 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-200">
+          className="h-7 px-1.5 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-200">
           {pageSizeOptions.map((n) => <option key={n} value={n}>{n} / page</option>)}
         </select>
       </div>
@@ -423,6 +440,30 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
   );
 }
 
+// ── Confirm Dialog ────────────────────────────────────────────────────────
+
+function ConfirmDialog({ title, message, confirmLabel = "Confirm", onConfirm, onCancel }: {
+  title: string; message: string; confirmLabel?: string;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 pt-5 pb-4">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{message}</p>
+        </div>
+        <div className="flex justify-end gap-2 px-6 pb-5">
+          <button onClick={onCancel}
+            className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={onConfirm}
+            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition-colors">{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Section Header ─────────────────────────────────────────────────────────
 
 function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onEdit, onSave, onCancel, onAdd, addLabel }: {
@@ -443,7 +484,7 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         {!editing && !collapsed && onAdd && (
           <button onClick={onAdd}
-            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-2 py-1 rounded hover:bg-indigo-50 transition-colors">
+            className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-50 transition-colors">
             <Plus className="w-3 h-3" />{addLabel ?? "Add"}
           </button>
         )}
@@ -458,7 +499,7 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
             <button onClick={onCancel}
               className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
             <button onClick={onSave}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">
+              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors">
               <Check className="w-3 h-3" />Save
             </button>
           </>
@@ -473,6 +514,9 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
 
 // ── Filter Panel (shared by Card View & Roster View) ──────────────────────
 
+type DateOp = "lt" | "gt" | "between";
+interface DateRange { op: DateOp; v1: string; v2: string }
+
 interface Filters {
   performer: string;
   employeeClass: string;
@@ -483,22 +527,40 @@ interface Filters {
   offerShow: string; offerRole: string;
   homeShow: string; homeRole: string;
   swingShow: string; swingRole: string;
-  eventExp: string;
-  contractEndBefore: string;
-  idPassportEndBefore: string;
+  eventName: string; eventRoleName: string;
+  contractEnd: DateRange;
+  idPassportEnd: DateRange;
   nationality: string;
 }
 
+const EMPTY_DATE: DateRange = { op: "lt", v1: "", v2: "" };
 const EMPTY_FILTERS: Filters = {
   performer: "", employeeClass: "",
   heightMin: "", heightMax: "", weightMin: "", weightMax: "",
   gender: "", skillType: "", skillSub: "",
   offerShow: "", offerRole: "", homeShow: "", homeRole: "", swingShow: "", swingRole: "",
-  eventExp: "", contractEndBefore: "", idPassportEndBefore: "", nationality: "",
+  eventName: "", eventRoleName: "",
+  contractEnd: { ...EMPTY_DATE }, idPassportEnd: { ...EMPTY_DATE },
+  nationality: "",
 };
 
+function dateRangeActive(d: DateRange): boolean {
+  if (d.op === "between") return !!d.v1 && !!d.v2;
+  return !!d.v1;
+}
+
+function dateRangeMatches(d: DateRange, value: string | undefined): boolean {
+  if (!value) return false;
+  if (d.op === "lt") return value < d.v1;
+  if (d.op === "gt") return value > d.v1;
+  return value >= d.v1 && value <= d.v2;
+}
+
 function hasAnyFilter(f: Filters): boolean {
-  return Object.values(f).some((v) => v !== "");
+  return Object.entries(f).some(([k, v]) => {
+    if (k === "contractEnd" || k === "idPassportEnd") return dateRangeActive(v as DateRange);
+    return v !== "";
+  });
 }
 
 function actorMatchesFilters(a: Actor, f: Filters): boolean {
@@ -516,18 +578,20 @@ function actorMatchesFilters(a: Actor, f: Filters): boolean {
     if (g && a.gender !== g) return false;
   }
   if (f.skillType && !a.skillEntries?.some((e) => e.type === f.skillType && (!f.skillSub || e.skill === f.skillSub))) return false;
+  if (f.offerShow && a.offerShow !== f.offerShow) return false;
+  if (f.offerRole && a.offerRole !== f.offerRole) return false;
   if (f.homeShow && a.homeShow !== f.homeShow) return false;
   if (f.homeRole && a.homeRole !== f.homeRole) return false;
   if (f.swingShow && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.show === f.swingShow)) return false;
   if (f.swingRole && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.role === f.swingRole)) return false;
-  if (f.eventExp === "has" && (a.eventRecords?.filter((e) => e.status === "active").length ?? 0) === 0) return false;
-  if (f.eventExp === "none" && (a.eventRecords?.filter((e) => e.status === "active").length ?? 0) > 0) return false;
-  if (f.contractEndBefore) {
-    if (!a.contractEndDate || a.contractEndDate > f.contractEndBefore) return false;
+  if (f.eventName || f.eventRoleName) {
+    const hit = a.eventRecords?.some((e) => e.status === "active"
+      && (!f.eventName || e.eventName === f.eventName)
+      && (!f.eventRoleName || e.roleName === f.eventRoleName));
+    if (!hit) return false;
   }
-  if (f.idPassportEndBefore) {
-    if (!a.idPassportEndDate || a.idPassportEndDate > f.idPassportEndBefore) return false;
-  }
+  if (dateRangeActive(f.contractEnd) && !dateRangeMatches(f.contractEnd, a.contractEndDate)) return false;
+  if (dateRangeActive(f.idPassportEnd) && !dateRangeMatches(f.idPassportEnd, a.idPassportEndDate)) return false;
   if (f.nationality && a.nationality !== f.nationality) return false;
   return true;
 }
@@ -536,17 +600,25 @@ const ALL_SHOWS = DATA.flatMap((l) => l.shows);
 const ALL_NATIONALITIES = [...new Set(ACTOR_POOL.map((a) => a.nationality))].sort();
 const EMPLOYEE_CLASS_OPTS = ["Local", "Foreign Local", "Foreign Foreign", "Mainland"];
 
+type StringFilterKey = {
+  [K in keyof Filters]: Filters[K] extends string ? K : never
+}[keyof Filters];
+type DateFilterKey = {
+  [K in keyof Filters]: Filters[K] extends DateRange ? K : never
+}[keyof Filters];
+
 function FilterPanel({ filters, onChange, onClose }: {
   filters: Filters; onChange: (next: Filters) => void; onClose: () => void;
 }) {
-  const set = (k: keyof Filters, v: string) => onChange({ ...filters, [k]: v });
+  const set = (k: StringFilterKey, v: string) => onChange({ ...filters, [k]: v });
+  const setDate = (k: DateFilterKey, next: DateRange) => onChange({ ...filters, [k]: next });
   const skillsForType = SKILLSET_CATEGORIES.find((c) => c.type === filters.skillType)?.skills ?? [];
   const rolesForShow = (showName: string) => ALL_SHOWS.find((s) => s.name === showName)?.roles ?? [];
 
-  const fieldCls = "h-9 px-2.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 placeholder:text-gray-300 w-full";
+  const fieldCls = "h-9 px-2.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 placeholder:text-gray-300 w-full";
   const lblCls = "block text-xs text-gray-500 mb-1";
 
-  const renderShowRolePair = (showKey: keyof Filters, roleKey: keyof Filters, showLabel: string) => (
+  const renderShowRolePair = (showKey: StringFilterKey, roleKey: StringFilterKey, showLabel: string) => (
     <div className="col-span-2">
       <label className={lblCls}>{showLabel}</label>
       <div className="grid grid-cols-2 gap-1.5">
@@ -561,6 +633,33 @@ function FilterPanel({ filters, onChange, onClose }: {
       </div>
     </div>
   );
+
+  const renderDateRange = (key: DateFilterKey, label: string) => {
+    const d = filters[key];
+    const cols = d.op === "between" ? "grid-cols-[110px_1fr_1fr]" : "grid-cols-[110px_1fr]";
+    return (
+      <div className="col-span-2">
+        <label className={lblCls}>{label}</label>
+        <div className={`grid gap-1.5 ${cols}`}>
+          <select value={d.op}
+            onChange={(e) => setDate(key, { ...d, op: e.target.value as DateOp })}
+            className={fieldCls}>
+            <option value="lt">Earlier than</option>
+            <option value="gt">Later than</option>
+            <option value="between">Between</option>
+          </select>
+          <input type="date" value={d.v1}
+            onChange={(e) => setDate(key, { ...d, v1: e.target.value })}
+            className={fieldCls} />
+          {d.op === "between" && (
+            <input type="date" value={d.v2}
+              onChange={(e) => setDate(key, { ...d, v2: e.target.value })}
+              className={fieldCls} />
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm mb-4">
@@ -614,28 +713,25 @@ function FilterPanel({ filters, onChange, onClose }: {
         {renderShowRolePair("offerShow", "offerRole", "Offer Show & Role")}
         {renderShowRolePair("homeShow", "homeRole", "Current Home Show & Role")}
         {renderShowRolePair("swingShow", "swingRole", "Swing Show & Role")}
-        <div>
+        <div className="col-span-2">
           <label className={lblCls}>Event Experience</label>
-          <select value={filters.eventExp} onChange={(e) => set("eventExp", e.target.value)} className={fieldCls}>
-            <option value="">请选择</option>
-            <option value="has">Has Experience</option>
-            <option value="none">No Experience</option>
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label className={lblCls}>Contract End Date</label>
-          <div className="grid grid-cols-[100px_1fr] gap-1.5">
-            <span className="h-9 px-2.5 flex items-center bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">Earlier than</span>
-            <input type="date" value={filters.contractEndBefore} onChange={(e) => set("contractEndBefore", e.target.value)} className={fieldCls} />
+          <div className="grid grid-cols-2 gap-1.5">
+            <select value={filters.eventName}
+              onChange={(e) => onChange({ ...filters, eventName: e.target.value, eventRoleName: "" })}
+              className={fieldCls}>
+              <option value="">Event Name</option>
+              {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select value={filters.eventRoleName} onChange={(e) => set("eventRoleName", e.target.value)}
+              disabled={!filters.eventName}
+              className={fieldCls + " disabled:opacity-50"}>
+              <option value="">Role Name</option>
+              {rolesForEvent(filters.eventName).map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
           </div>
         </div>
-        <div className="col-span-2">
-          <label className={lblCls}>ID/Passport Valid End Date</label>
-          <div className="grid grid-cols-[100px_1fr] gap-1.5">
-            <span className="h-9 px-2.5 flex items-center bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">Earlier than</span>
-            <input type="date" value={filters.idPassportEndBefore} onChange={(e) => set("idPassportEndBefore", e.target.value)} className={fieldCls} />
-          </div>
-        </div>
+        {renderDateRange("contractEnd", "Contract End Date")}
+        {renderDateRange("idPassportEnd", "ID/Passport Valid End Date")}
         <div>
           <label className={lblCls}>Nationality</label>
           <select value={filters.nationality} onChange={(e) => set("nationality", e.target.value)} className={fieldCls}>
@@ -650,7 +746,7 @@ function FilterPanel({ filters, onChange, onClose }: {
             <RotateCcw className="w-3 h-3" />Reset
           </button>
         ) : <span />}
-        <button onClick={onClose} className="text-sm text-indigo-500 hover:text-indigo-700 font-medium transition-colors">Close</button>
+        <button onClick={onClose} className="text-sm text-brand-500 hover:text-brand-700 font-medium transition-colors">Close</button>
       </div>
     </div>
   );
@@ -678,49 +774,44 @@ const MEAS_GROUPS: { col: ("left" | "mid" | "right"); label: string; key: keyof 
   { col: "right", label: "Hips 臀围(cm)", key: "hips", kind: "num" },
 ];
 
-function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed, onToggleCollapse, onEdit, onSave, onCancel, onDownload }: {
+function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed, onToggleCollapse, onEdit, onSave, onCancel, onUpload }: {
   meas: Measurements; measDraft: Measurements; setMeasDraft: (m: Measurements) => void;
   editing: boolean; collapsed: boolean;
   onToggleCollapse: () => void; onEdit: () => void; onSave: () => void; onCancel: () => void;
-  onDownload: () => void;
+  onUpload: () => void;
 }) {
   const cols: Record<"left" | "mid" | "right", typeof MEAS_GROUPS> = { left: [], mid: [], right: [] };
   MEAS_GROUPS.forEach((g) => cols[g.col].push(g));
 
+  // Use the "costuming" slot as the canonical (and only) value going forward.
   function renderCell(group: typeof MEAS_GROUPS[number]) {
     const src = editing ? measDraft : meas;
     const field = src[group.key] as MeasNum | MeasStr;
     if (editing) {
-      const update = (which: "tm" | "costuming", val: string) => {
+      const update = (val: string) => {
         const next = { ...measDraft };
         const cur = next[group.key] as MeasNum | MeasStr;
         if (group.kind === "num") {
-          (next[group.key] as MeasNum) = { ...(cur as MeasNum), [which]: val === "" ? "" : +val };
+          (next[group.key] as MeasNum) = { ...(cur as MeasNum), costuming: val === "" ? "" : +val };
         } else {
-          (next[group.key] as MeasStr) = { ...(cur as MeasStr), [which]: val };
+          (next[group.key] as MeasStr) = { ...(cur as MeasStr), costuming: val };
         }
         setMeasDraft(next);
       };
       return (
-        <div className="grid grid-cols-[1fr_56px_56px] items-center gap-1.5 py-1">
+        <div className="grid grid-cols-[1fr_72px] items-center gap-1.5 py-1">
           <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
           <input
             type={group.kind === "num" ? "number" : "text"}
-            value={String(field.tm ?? "")}
-            onChange={(e) => update("tm", e.target.value)}
-            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-indigo-300" />
-          <input
-            type={group.kind === "num" ? "number" : "text"}
             value={String(field.costuming ?? "")}
-            onChange={(e) => update("costuming", e.target.value)}
-            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-indigo-300" />
+            onChange={(e) => update(e.target.value)}
+            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-brand-300" />
         </div>
       );
     }
     return (
-      <div className="grid grid-cols-[1fr_56px_56px] items-center gap-1.5 py-1.5">
+      <div className="grid grid-cols-[1fr_72px] items-center gap-1.5 py-1.5">
         <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
-        <span className="text-[11px] text-gray-700 text-center">{field.tm === "" ? "—" : field.tm}</span>
         <span className="text-[11px] font-semibold text-gray-900 text-center">{field.costuming === "" ? "—" : field.costuming}</span>
       </div>
     );
@@ -731,20 +822,18 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
       <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={onToggleCollapse}>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-900">Measurement Form</span>
-          {!editing && !collapsed && (
-            <button onClick={(e) => { e.stopPropagation(); onDownload(); }}
-              className="text-indigo-500 hover:text-indigo-700 transition-colors p-0.5 rounded">
-              <Download className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <span className="text-sm font-semibold text-gray-900">Measurement</span>
         </div>
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           {!editing && !collapsed && (
             <>
               <span className="text-[10px] text-gray-400">
-                Update Info: <span className="text-gray-600">{meas.updateInfo.date || "—"}</span> · <span className="text-gray-600">{meas.updateInfo.editor}</span> {meas.updateInfo.ssoId && <span className="text-gray-400">({meas.updateInfo.ssoId})</span>}
+                Update Info: <span className="text-gray-600">{meas.updateInfo.date || "—"}</span>
               </span>
+              <button onClick={onUpload}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                <Upload className="w-3 h-3" />Upload
+              </button>
               <button onClick={onEdit}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
                 <Pencil className="w-3 h-3" />Edit
@@ -756,7 +845,7 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
               <button onClick={onCancel}
                 className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
               <button onClick={onSave}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors">
+                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors">
                 <Check className="w-3 h-3" />Save
               </button>
             </>
@@ -768,16 +857,6 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
       </div>
       {!collapsed && (
         <div className="px-5 pb-4">
-          {/* Column headers */}
-          <div className="grid grid-cols-3 gap-3 mb-1.5">
-            {(["left", "mid", "right"] as const).map((c) => (
-              <div key={c} className="grid grid-cols-[1fr_56px_56px] gap-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-                <span></span>
-                <span className="text-center">TM</span>
-                <span className="text-center">Costuming</span>
-              </div>
-            ))}
-          </div>
           <div className="grid grid-cols-3 gap-3 divide-x-0">
             {(["left", "mid", "right"] as const).map((c) => (
               <div key={c} className="divide-y divide-gray-50">
@@ -788,6 +867,116 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
         </div>
       )}
     </>
+  );
+}
+
+// ── Measurement Import Modal ───────────────────────────────────────────────
+
+function MeasurementImportModal({ onClose, onApply, ssoId }: {
+  onClose: () => void;
+  onApply: (next: Partial<Measurements>) => void;
+  ssoId: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState<string[][]>([]);
+
+  function downloadTemplate() {
+    const header = ["SSO", ...MEAS_GROUPS.map((g) => g.label)];
+    const sample = [ssoId, ...MEAS_GROUPS.map(() => "")];
+    const ws = XLSX.utils.aoa_to_sheet([header, sample]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Measurement");
+    XLSX.writeFile(wb, `measurement_template_${ssoId}.xlsx`);
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = evt.target?.result;
+      const wb = XLSX.read(data, { type: "binary" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 }) as string[][];
+      setPreview(rows.slice(0, 6));
+    };
+    reader.readAsBinaryString(f);
+    e.target.value = "";
+  }
+
+  function applyImport() {
+    if (preview.length < 2) { onClose(); return; }
+    const dataRow = preview[1];
+    // dataRow[0] = SSO, dataRow[1..] = values aligned to MEAS_GROUPS
+    const next: Partial<Measurements> = {};
+    MEAS_GROUPS.forEach((g, i) => {
+      const raw = String(dataRow[i + 1] ?? "").trim();
+      if (!raw) return;
+      if (g.kind === "num") {
+        const v = Number(raw);
+        if (!Number.isNaN(v)) (next[g.key] as MeasNum) = { tm: v, costuming: v };
+      } else {
+        (next[g.key] as MeasStr) = { tm: raw, costuming: raw };
+      }
+    });
+    onApply(next);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-900">Upload Measurement</h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+            <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-blue-700">Download template first</p>
+              <p className="text-xs text-blue-500 mt-0.5">Includes all measurement fields plus SSO.</p>
+            </div>
+            <button onClick={downloadTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors flex-shrink-0">
+              <Download className="w-3.5 h-3.5" />Template
+            </button>
+          </div>
+
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
+          <div onClick={() => fileRef.current?.click()}
+            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
+            <Upload className="w-6 h-6" />
+            <span className="text-sm font-medium">{fileName || "Click to select .xlsx / .xls / .csv"}</span>
+          </div>
+
+          {preview.length > 0 && (
+            <div className="overflow-auto rounded-xl border border-gray-100 max-h-72">
+              <table className="w-full text-xs">
+                <tbody>
+                  {preview.map((row, i) => (
+                    <tr key={i} className={i === 0 ? "bg-gray-50 font-semibold text-gray-700" : "text-gray-600"}>
+                      {row.map((cell, j) => (
+                        <td key={j} className="px-3 py-2 border-b border-gray-100 whitespace-nowrap">{String(cell ?? "")}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-3 px-6 pb-5">
+          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={applyImport} disabled={preview.length < 2}
+            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -804,21 +993,47 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
     measurements: true, event: true, attachments: true,
   });
   const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
+  const [showMore, setShowMore] = useState(false);
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const askConfirm = (title: string, message: string, onConfirm: () => void) =>
+    setConfirm({ title, message, onConfirm });
 
   // ── Skill section ──────────────────────────────────────────────────────
   const [skillEntries, setSkillEntries] = useState<SkillEntry[]>(actor.skillEntries ?? []);
   const [addingSkill, setAddingSkill] = useState(false);
+  const [skillDrafts, setSkillDrafts] = useState<SkillEntry[]>([]);
   const [skillForm, setSkillForm] = useState({ type: "", skill: "" });
   const skillsForType = SKILLSET_CATEGORIES.find((c) => c.type === skillForm.type)?.skills ?? [];
 
-  function saveSkill() {
+  function appendSkillDraft() {
     if (!skillForm.type || !skillForm.skill) return;
-    if (skillEntries.find((e) => e.type === skillForm.type && e.skill === skillForm.skill)) {
+    const dup = [...skillEntries, ...skillDrafts].some(
+      (e) => e.type === skillForm.type && e.skill === skillForm.skill);
+    if (dup) { setSkillForm({ type: "", skill: "" }); return; }
+    setSkillDrafts((p) => [...p, { id: `sk-${Date.now()}-${p.length}`, type: skillForm.type, skill: skillForm.skill }]);
+    setSkillForm({ type: "", skill: "" });
+  }
+
+  function saveSkill() {
+    // commit pending draft (if any) plus all drafts
+    const pending: SkillEntry[] = [];
+    if (skillForm.type && skillForm.skill
+        && ![...skillEntries, ...skillDrafts].some((e) => e.type === skillForm.type && e.skill === skillForm.skill)) {
+      pending.push({ id: `sk-${Date.now()}-final`, type: skillForm.type, skill: skillForm.skill });
+    }
+    const all = [...skillDrafts, ...pending];
+    if (all.length === 0) {
       setAddingSkill(false);
-      setSkillForm({ type: "", skill: "" });
       return;
     }
-    setSkillEntries((p) => [...p, { id: `sk-${Date.now()}`, type: skillForm.type, skill: skillForm.skill }]);
+    setSkillEntries((p) => [...p, ...all]);
+    setSkillDrafts([]);
+    setSkillForm({ type: "", skill: "" });
+    setAddingSkill(false);
+  }
+
+  function cancelSkill() {
+    setSkillDrafts([]);
     setSkillForm({ type: "", skill: "" });
     setAddingSkill(false);
   }
@@ -827,12 +1042,27 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [addingMedia, setAddingMedia] = useState(false);
-  const [mediaForm, setMediaForm] = useState({ note: "" });
+  const [mediaForm, setMediaForm] = useState<{ note: string; file: File | null; url: string; type: "photo" | "video" }>({
+    note: "", file: null, url: "", type: "photo",
+  });
+  const portfolioInputRef = useRef<HTMLInputElement>(null);
+
+  function handlePortfolioPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const type: "photo" | "video" = f.type.startsWith("video") ? "video" : "photo";
+    setMediaForm((p) => ({ ...p, file: f, url, type }));
+    e.target.value = "";
+  }
 
   function saveMedia() {
-    const photoNum = ((Date.now() % 70) + 1);
-    setMediaFiles((p) => [...p, { type: "photo", url: `https://randomuser.me/api/portraits/men/${photoNum}.jpg`, note: mediaForm.note }]);
-    setMediaForm({ note: "" });
+    if (!mediaForm.url) {
+      setAddingMedia(false);
+      return;
+    }
+    setMediaFiles((p) => [...p, { type: mediaForm.type, url: mediaForm.url, note: mediaForm.note }]);
+    setMediaForm({ note: "", file: null, url: "", type: "photo" });
     setAddingMedia(false);
   }
 
@@ -882,65 +1112,28 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
     setEditingMeas(false);
   }
 
-  function downloadMeasurementForm() {
-    const cellsLeft: [string, keyof Measurements][] = [
-      ["Height 身高(cm)", "height"], ["Neck 领围(cm)", "neck"],
-      ["Across Shoulder Back 后肩宽(cm)", "acrossShoulderBack"], ["Chest 胸围(cm)", "chest"], ["Bicep 大臂围(cm)", "bicep"],
-    ];
-    const cellsMid: [string, keyof Measurements][] = [
-      ["Weight 体重(kg)", "weight"], ["Sneaker Size 运动鞋尺码", "sneakerSize"],
-      ["Across Front 前胸宽(cm)", "acrossFront"], ["Waist 腰围(cm)", "waist"], ["Wrist 手腕(cm)", "wrist"],
-    ];
-    const cellsRight: [string, keyof Measurements][] = [
-      ["Bra Size 胸罩罩杯", "braSize"], ["Head Circumference 头围(cm)", "headCircumference"],
-      ["Across Back 后背宽(cm)", "acrossBack"], ["Hips 臀围(cm)", "hips"],
-    ];
-    const headerRow = ["Field", "TM", "Costuming", "", "Field", "TM", "Costuming", "", "Field", "TM", "Costuming"];
-    const rows: (string | number)[][] = [headerRow];
-    const max = Math.max(cellsLeft.length, cellsMid.length, cellsRight.length);
-    for (let i = 0; i < max; i++) {
-      const row: (string | number)[] = [];
-      const groups = [cellsLeft, cellsMid, cellsRight];
-      groups.forEach((g, gi) => {
-        const entry = g[i];
-        if (entry) {
-          const f = meas[entry[1]] as MeasNum | MeasStr;
-          row.push(entry[0], String(f.tm ?? ""), String(f.costuming ?? ""));
-        } else {
-          row.push("", "", "");
-        }
-        if (gi < 2) row.push("");
-      });
-      rows.push(row);
-    }
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Measurement");
-    XLSX.writeFile(wb, `measurement_${actor.ssoId}.xlsx`);
+  const [measImportOpen, setMeasImportOpen] = useState(false);
+
+  function applyMeasurementImport(next: Partial<Measurements>) {
+    const today = new Date().toISOString().split("T")[0];
+    setMeas((prev) => ({
+      ...prev,
+      ...next,
+      updateInfo: { date: today, editor: "Imported", ssoId: "" },
+    }));
   }
 
   // ── Event Experience section ───────────────────────────────────────────
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
   const [addingEvent, setAddingEvent] = useState(false);
   const [eventForm, setEventForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
-  const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  const [editEventForm, setEditEventForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
+  const eventRolesForForm = rolesForEvent(eventForm.eventName);
 
   function saveEvent() {
-    if (!eventForm.eventName || !eventForm.startDate) return;
+    if (!eventForm.eventName || !eventForm.roleName || !eventForm.startDate) return;
     setEventRecords((p) => [{ id: `ev-${Date.now()}`, ...eventForm, status: "active" }, ...p]);
     setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" });
     setAddingEvent(false);
-  }
-
-  function startEditEvent(rec: EventRecord) {
-    setEditingEventId(rec.id);
-    setEditEventForm({ eventName: rec.eventName, roleName: rec.roleName, startDate: rec.startDate, endDate: rec.endDate });
-  }
-
-  function saveEditEvent(id: string) {
-    setEventRecords((p) => p.map((r) => r.id === id ? { ...r, ...editEventForm } : r));
-    setEditingEventId(null);
   }
 
   // ── Attachments section ────────────────────────────────────────────────
@@ -959,7 +1152,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
     e.target.value = "";
   }
 
-  const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300";
+  const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300";
   const labelCls = "block text-xs text-gray-400 mb-1";
 
   const activeShowRoleCount = showRoleRecords.filter((r) => r.status === "active").length;
@@ -970,6 +1163,19 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
       {lightboxIdx !== null && (
         <Lightbox files={mediaFiles} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
       )}
+      {measImportOpen && (
+        <MeasurementImportModal ssoId={actor.ssoId}
+          onApply={applyMeasurementImport}
+          onClose={() => setMeasImportOpen(false)} />
+      )}
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
+        />
+      )}
       <input ref={headshotInputRef} type="file" accept="image/*" className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -977,7 +1183,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
           e.target.value = "";
         }} />
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-[528px] bg-white shadow-2xl flex flex-col">
 
         {/* Photo header with headshot replacement */}
         <div className="relative flex-shrink-0 h-48 bg-gray-100 group/headshot">
@@ -998,13 +1204,23 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
           </div>
         </div>
 
-        {/* Basic Info — always read-only */}
+        {/* Home Show & Role accent strip */}
+        {(actor.homeShow || actor.homeRole) && (
+          <div className="flex-shrink-0 px-5 py-2.5 bg-brand-50 border-b border-brand-100 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-brand-600 font-semibold">Home Show & Role</span>
+            <span className="text-sm font-bold text-brand-700">
+              {actor.homeShow ?? "—"} <span className="text-brand-400 mx-1">&</span> {actor.homeRole ?? "—"}
+            </span>
+          </div>
+        )}
+
+        {/* Basic Info — top row */}
         <div className="flex-shrink-0 grid grid-cols-5 border-b border-gray-100">
           {[
             { label: "SSO", value: actor.ssoId, mono: true },
             { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
-            { label: "Height", value: `${meas.height.tm || actor.height} cm` },
-            { label: "Weight", value: `${meas.weight.tm || actor.weight} kg` },
+            { label: "Height", value: `${actor.height} cm` },
+            { label: "Weight", value: `${actor.weight} kg` },
             { label: "Contract End", value: actor.contractEndDate ?? "—" },
           ].map(({ label, value, mono }) => (
             <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
@@ -1012,6 +1228,33 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
             </div>
           ))}
+        </div>
+
+        {/* Basic Info — More expander */}
+        <div className="flex-shrink-0 border-b border-gray-100">
+          <button onClick={() => setShowMore((p) => !p)}
+            className="w-full flex items-center justify-center gap-1 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors">
+            {showMore ? "Less" : "More"}
+            {showMore ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+          {showMore && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-5 pb-3 text-[11px]">
+              {[
+                ["Gender", actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : ""],
+                ["Employee Class", actor.employeeClass],
+                ["Offer Show", actor.offerShow],
+                ["Offer Role", actor.offerRole],
+                ["Contract Start Date", actor.contractStartDate],
+                ["Contract End Date", actor.contractEndDate],
+                ["ID/Passport Valid End Date", actor.idPassportEndDate],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-2 border-b border-gray-50 last:border-b-0 pb-1">
+                  <span className="text-gray-400 flex-shrink-0">{label}</span>
+                  <span className="text-gray-800 font-medium truncate">{value || "—"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Scrollable sections */}
@@ -1024,15 +1267,30 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               editing={addingSkill} collapsed={collapsed.skills}
               onToggleCollapse={() => toggle("skills")}
               onAdd={() => setAddingSkill(true)} addLabel="Add"
-              onCancel={() => { setAddingSkill(false); setSkillForm({ type: "", skill: "" }); }}
+              onCancel={cancelSkill}
               onSave={saveSkill}
             />
             {!collapsed.skills && (
               <div className="px-5 pb-4">
-                {/* Add form */}
+                {/* Add form — supports multiple in a row */}
                 {addingSkill && (
-                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
+                  <div className="mb-3 p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+                    {/* Pending drafts list */}
+                    {skillDrafts.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {skillDrafts.map((d) => (
+                          <span key={d.id}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full font-medium ${SKILL_TAG_COLORS[d.type] ?? "bg-gray-100 text-gray-600"}`}>
+                            <span>{d.skill}</span>
+                            <button onClick={() => setSkillDrafts((p) => p.filter((x) => x.id !== d.id))}
+                              className="ml-0.5 hover:opacity-70 transition-opacity">
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                       <div>
                         <label className={labelCls}>Skill Type</label>
                         <select value={skillForm.type} onChange={(e) => setSkillForm({ type: e.target.value, skill: "" })}
@@ -1050,10 +1308,15 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                           {skillsForType.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
+                      <button onClick={appendSkillDraft}
+                        disabled={!skillForm.type || !skillForm.skill}
+                        className="h-[30px] px-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1">
+                        <Plus className="w-3 h-3" />Add Row
+                      </button>
                     </div>
                   </div>
                 )}
-                {/* Skill tags */}
+                {/* Skill tags (view mode shows skill only) */}
                 {skillEntries.length === 0 && !addingSkill ? (
                   <p className="text-xs text-gray-300 py-2">No skills added</p>
                 ) : (
@@ -1061,9 +1324,9 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                     {skillEntries.map((e) => (
                       <span key={e.id}
                         className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full font-medium ${SKILL_TAG_COLORS[e.type] ?? "bg-gray-100 text-gray-600"}`}>
-                        <span className="opacity-60 text-[10px]">{e.type}</span>
                         <span>{e.skill}</span>
-                        <button onClick={() => setSkillEntries((p) => p.filter((x) => x.id !== e.id))}
+                        <button onClick={() => askConfirm("Remove skill", `Remove "${e.skill}" from this performer?`,
+                          () => setSkillEntries((p) => p.filter((x) => x.id !== e.id)))}
                           className="ml-0.5 hover:opacity-70 transition-opacity">
                           <X className="w-2.5 h-2.5" />
                         </button>
@@ -1077,26 +1340,40 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
 
           {/* ── Portfolio ── */}
           <div className="border-b border-gray-100">
+            <input ref={portfolioInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handlePortfolioPick} />
             <SectionHeader
               title="Portfolio" count={mediaFiles.length}
               editing={addingMedia} collapsed={collapsed.portfolio}
               onToggleCollapse={() => toggle("portfolio")}
               onAdd={() => setAddingMedia(true)} addLabel="Add"
-              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "" }); }}
+              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", file: null, url: "", type: "photo" }); }}
               onSave={saveMedia}
             />
             {!collapsed.portfolio && (
               <div className="px-5 pb-4">
                 {/* Add form */}
                 {addingMedia && (
-                  <div className="mb-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 space-y-2">
-                    <div className="rounded-xl border-2 border-dashed border-indigo-200 h-20 flex flex-col items-center justify-center gap-1 text-indigo-300 hover:text-indigo-400 cursor-pointer transition-colors">
-                      <Upload className="w-4 h-4" />
-                      <span className="text-xs">Click to select photo or video</span>
-                    </div>
+                  <div className="mb-3 p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+                    {mediaForm.url ? (
+                      <div className="relative rounded-xl overflow-hidden bg-white aspect-video">
+                        {mediaForm.type === "video"
+                          ? <video src={mediaForm.url} controls className="w-full h-full object-contain" />
+                          : <img src={mediaForm.url} alt="" className="w-full h-full object-contain" />}
+                        <button onClick={() => setMediaForm((p) => ({ ...p, file: null, url: "", type: "photo" }))}
+                          className="absolute top-2 right-2 w-6 h-6 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div onClick={() => portfolioInputRef.current?.click()}
+                        className="rounded-xl border-2 border-dashed border-brand-200 h-20 flex flex-col items-center justify-center gap-1 text-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
+                        <Upload className="w-4 h-4" />
+                        <span className="text-xs">Click to select photo or video</span>
+                      </div>
+                    )}
                     <div>
                       <label className={labelCls}>Note (optional)</label>
-                      <input value={mediaForm.note} onChange={(e) => setMediaForm({ note: e.target.value })}
+                      <input value={mediaForm.note} onChange={(e) => setMediaForm((p) => ({ ...p, note: e.target.value }))}
                         className={inputCls} placeholder="e.g. Stage performance, natural lighting" />
                     </div>
                   </div>
@@ -1122,7 +1399,8 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                             className="absolute inset-0 opacity-0 group-hover/media:opacity-100 bg-black/20 transition-opacity flex items-center justify-center">
                             <Eye className="w-5 h-5 text-white drop-shadow" />
                           </button>
-                          <button onClick={() => setMediaFiles((p) => p.filter((_, idx) => idx !== i))}
+                          <button onClick={() => askConfirm("Remove media", "This media file will be removed from the portfolio. Continue?",
+                            () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)))}
                             className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/media:opacity-100">
                             <X className="w-3 h-3" />
                           </button>
@@ -1154,7 +1432,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               <div className="px-5 pb-4 space-y-2">
                 {/* Add form */}
                 {addingShowRole && (
-                  <div className="p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
+                  <div className="p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
                     <div className="grid grid-cols-3 gap-2">
                       <div><label className={labelCls}>Show</label>
                         <select value={showRoleForm.show}
@@ -1184,39 +1462,63 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                     </div>
                   </div>
                 )}
-                {/* Unified record list */}
+                {/* Empty state */}
                 {showRoleRecords.length === 0 && !addingShowRole && (
                   <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
                 )}
-                {showRoleRecords.map((rec) => {
-                  const inactive = rec.status === "inactive";
-                  return (
-                    <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${inactive ? "border-gray-100 bg-gray-50/40 opacity-50" : (rec.roleType === "home" ? "border-indigo-100 bg-indigo-50/40" : "border-amber-100 bg-amber-50/40")}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold ${rec.roleType === "home" ? "bg-indigo-500 text-white" : "bg-amber-400 text-amber-900"}`}>
-                            {rec.roleType === "home" ? "Home" : "Swing"}
-                          </span>
-                          <span className="text-xs font-semibold text-gray-900 truncate">{rec.show}</span>
-                          <span className="text-xs text-gray-300">/</span>
-                          <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
-                          <span className="text-xs text-gray-400 ml-1 flex-shrink-0">{rec.date}</span>
+                {/* Column header */}
+                {showRoleRecords.length > 0 && (
+                  <div className="grid grid-cols-[1fr_110px_60px] gap-2 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                    <span>Show &amp; Role</span>
+                    <span>Last Modified</span>
+                    <span></span>
+                  </div>
+                )}
+                {/* Sorted: home first, swing by date desc */}
+                {[...showRoleRecords]
+                  .sort((a, b) => {
+                    if (a.roleType === "home" && b.roleType !== "home") return -1;
+                    if (b.roleType === "home" && a.roleType !== "home") return 1;
+                    return b.date.localeCompare(a.date);
+                  })
+                  .map((rec) => {
+                    const inactive = rec.status === "inactive";
+                    const tone = inactive
+                      ? "border-gray-100 bg-gray-50/40 opacity-50"
+                      : rec.roleType === "home"
+                        ? "border-brand-100 bg-brand-50/30"
+                        : "border-amber-100/70 bg-amber-50/20";
+                    const chip = rec.roleType === "home"
+                      ? "bg-brand-100 text-brand-700"
+                      : "bg-amber-100 text-amber-700";
+                    return (
+                      <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${tone}`}>
+                        <div className="grid grid-cols-[1fr_110px_60px] gap-2 items-center">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${chip}`}>
+                              {rec.roleType === "home" ? "Home" : "Swing"}
+                            </span>
+                            <span className="text-xs font-semibold text-gray-900 truncate">{rec.show}</span>
+                            <span className="text-xs text-gray-300">/</span>
+                            <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
+                          </div>
+                          <span className="text-xs text-gray-400">{rec.date}</span>
+                          {inactive ? (
+                            <span className="text-xs text-gray-300">Removed</span>
+                          ) : (
+                            <button onClick={() => askConfirm("Remove show & role", `Remove ${rec.show} / ${rec.role}?`,
+                              () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Remove</button>
+                          )}
                         </div>
-                        {inactive ? (
-                          <span className="text-xs text-gray-300 px-1.5 py-0.5 flex-shrink-0">Removed</span>
-                        ) : (
-                          <button onClick={() => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
-                            className="text-xs text-indigo-500 hover:text-indigo-700 px-1.5 py-0.5 rounded transition-colors flex-shrink-0">Remove</button>
-                        )}
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             )}
           </div>
 
-          {/* ── Measurement Form (TM vs Costuming) ── */}
+          {/* ── Measurement ── */}
           <div className="border-b border-gray-100">
             <MeasurementSection
               meas={meas} measDraft={measDraft} setMeasDraft={setMeasDraft}
@@ -1225,7 +1527,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               onEdit={() => { setMeasDraft({ ...meas }); setEditingMeas(true); }}
               onSave={saveMeas}
               onCancel={() => setEditingMeas(false)}
-              onDownload={downloadMeasurementForm}
+              onUpload={() => setMeasImportOpen(true)}
             />
           </div>
 
@@ -1241,14 +1543,27 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
             />
             {!collapsed.event && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Add form */}
+                {/* Add form — enum dropdowns */}
                 {addingEvent && (
-                  <div className="p-3 bg-indigo-50 rounded-xl space-y-2 border border-indigo-100">
-                    <div><label className={labelCls}>Event Name</label>
-                      <input value={eventForm.eventName} onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value }))} className={inputCls} placeholder="e.g. Summer Spectacular" />
-                    </div>
-                    <div><label className={labelCls}>Role</label>
-                      <input value={eventForm.roleName} onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} placeholder="e.g. Lead Performer" />
+                  <div className="p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className={labelCls}>Event Name</label>
+                        <select value={eventForm.eventName}
+                          onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value, roleName: "" }))}
+                          className={inputCls + " bg-white"}>
+                          <option value="">Please Choose</option>
+                          {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                      <div><label className={labelCls}>Role Name</label>
+                        <select value={eventForm.roleName}
+                          onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))}
+                          disabled={!eventForm.eventName}
+                          className={inputCls + " bg-white disabled:opacity-50"}>
+                          <option value="">Please Choose</option>
+                          {eventRolesForForm.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div><label className={labelCls}>Start Date</label>
@@ -1263,52 +1578,31 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                 {eventRecords.length === 0 && !addingEvent && (
                   <p className="text-xs text-gray-300 py-3 text-center">No event records</p>
                 )}
-                {eventRecords.map((rec) => (
-                  <div key={rec.id} className={`p-3 rounded-xl border ${rec.status === "inactive" ? "border-gray-100 opacity-40" : "border-gray-200"}`}>
-                    {editingEventId === rec.id ? (
-                      <div className="space-y-2">
-                        <div><label className={labelCls}>Event Name</label>
-                          <input value={editEventForm.eventName} onChange={(e) => setEditEventForm((f) => ({ ...f, eventName: e.target.value }))} className={inputCls} />
+                {eventRecords.map((rec) => {
+                  const inactive = rec.status === "inactive";
+                  return (
+                    <div key={rec.id} className={`p-3 rounded-xl border ${inactive ? "border-gray-100 opacity-40" : "border-gray-200"}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
+                          <span className="text-xs text-gray-300 flex-shrink-0">&amp;</span>
+                          <span className="text-xs font-medium text-gray-700 truncate">{rec.roleName}</span>
                         </div>
-                        <div><label className={labelCls}>Role</label>
-                          <input value={editEventForm.roleName} onChange={(e) => setEditEventForm((f) => ({ ...f, roleName: e.target.value }))} className={inputCls} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div><label className={labelCls}>Start Date</label>
-                            <input type="date" value={editEventForm.startDate} onChange={(e) => setEditEventForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} />
-                          </div>
-                          <div><label className={labelCls}>End Date</label>
-                            <input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} />
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => setEditingEventId(null)} className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600">Cancel</button>
-                          <button onClick={() => saveEditEvent(rec.id)} className="text-xs px-2.5 py-1 bg-indigo-500 text-white rounded-lg">Save</button>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs text-gray-400">{rec.startDate}</span>
+                          {inactive ? (
+                            <span className="text-xs text-gray-300">Removed</span>
+                          ) : (
+                            <button onClick={() => askConfirm("Remove event", `Remove "${rec.eventName} & ${rec.roleName}"?`,
+                              () => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                              className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors">Remove</button>
+                          )}
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
-                            <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${rec.status === "active" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"}`}>
-                              {rec.status === "active" ? "Active" : "Removed"}
-                            </span>
-                          </div>
-                          <p className="text-xs text-indigo-600 mt-0.5">{rec.roleName}</p>
-                          <p className="text-xs text-gray-400 mt-1">{rec.startDate} → {rec.endDate}</p>
-                        </div>
-                        {rec.status === "active" && (
-                          <div className="flex gap-1 flex-shrink-0">
-                            <button onClick={() => startEditEvent(rec)} className="text-xs text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors">Edit</button>
-                            <button onClick={() => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r))}
-                              className="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors">Remove</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      <p className="text-xs text-gray-400">{rec.startDate} 至 {rec.endDate}</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1331,7 +1625,8 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                   <div key={att.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
                     <Paperclip className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <span className="text-xs text-gray-700 flex-1 truncate">{att.name}</span>
-                    <button onClick={() => setAttachments((p) => p.filter((a) => a.id !== att.id))}
+                    <button onClick={() => askConfirm("Remove attachment", `Remove "${att.name}"?`,
+                      () => setAttachments((p) => p.filter((a) => a.id !== att.id)))}
                       className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1353,16 +1648,36 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
 
 // ── Roster Import Modal ────────────────────────────────────────────────────
 
+const IMPORT_COLUMNS: { key: string; required: boolean }[] = [
+  { key: "SSO", required: true },
+  { key: "Full Name", required: true },
+  { key: "Nationality", required: false },
+  { key: "Gender", required: false },
+  { key: "Height (cm)", required: false },
+  { key: "Weight (kg)", required: false },
+  { key: "Offer Show", required: false },
+  { key: "Offer Role", required: false },
+  { key: "Home Show", required: false },
+  { key: "Home Role", required: false },
+  { key: "Contract Start Date", required: false },
+  { key: "Contract End Date", required: false },
+  { key: "Employee Class", required: false },
+  { key: "ID/Passport Valid End Date", required: false },
+];
+
 function RosterImportModal({ onClose }: { onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<string[][]>([]);
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["SSO ID", "Full Name", "Nationality", "Height (cm)", "Weight (kg)", "Home Show", "Home Role", "Contract End Date"],
-      ["20017233", "Arthur William Bennett", "UK", "178", "72", "UOP", "Dragon Dance", "2025-12-31"],
-    ]);
+    const header = IMPORT_COLUMNS.map((c) => c.required ? `${c.key} *` : c.key);
+    const sample = [
+      "20017233", "Arthur William Bennett", "UK", "Male", "178", "72",
+      "UOP", "Dragon Dance", "UOP", "Dragon Dance",
+      "2024-01-15", "2025-12-31", "Foreign Foreign", "2027-06-30",
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([header, sample]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Performers");
     XLSX.writeFile(wb, "performer_import_template.xlsx");
@@ -1384,9 +1699,19 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
     e.target.value = "";
   }
 
+  const dataRows = preview.slice(1);
+  // SSO at col 0, Full Name at col 1; flag rows with either missing
+  const invalidRowIdx = new Set<number>();
+  dataRows.forEach((row, i) => {
+    const sso = String(row[0] ?? "").trim();
+    const name = String(row[1] ?? "").trim();
+    if (!sso || !name) invalidRowIdx.add(i + 1); // +1 because preview[0] is header
+  });
+  const hasInvalid = invalidRowIdx.size > 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">Import Performers</h2>
@@ -1399,7 +1724,10 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
             <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-xs font-medium text-blue-700">Download template first</p>
-              <p className="text-xs text-blue-500 mt-0.5">Fields: SSO ID, Full Name, Nationality, Height, Weight, Home Show, Home Role, Contract End Date</p>
+              <p className="text-xs text-blue-500 mt-0.5">
+                Required: <span className="text-red-500 font-semibold">SSO</span>, <span className="text-red-500 font-semibold">Full Name</span>.
+                Rows without Home Show / Home Role go to Unassigned.
+              </p>
             </div>
             <button onClick={downloadTemplate}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors flex-shrink-0">
@@ -1409,17 +1737,21 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
 
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
           <div onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-indigo-300 hover:text-indigo-400 cursor-pointer transition-colors">
+            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
             <Upload className="w-6 h-6" />
             <span className="text-sm font-medium">{fileName || "Click to select .xlsx / .xls / .csv"}</span>
           </div>
 
           {preview.length > 0 && (
-            <div className="overflow-auto rounded-xl border border-gray-100">
+            <div className="overflow-auto rounded-xl border border-gray-100 max-h-72">
               <table className="w-full text-xs">
                 <tbody>
                   {preview.map((row, i) => (
-                    <tr key={i} className={i === 0 ? "bg-gray-50 font-semibold text-gray-700" : "text-gray-600"}>
+                    <tr key={i} className={i === 0
+                      ? "bg-gray-50 font-semibold text-gray-700"
+                      : invalidRowIdx.has(i)
+                        ? "bg-red-50 text-red-700"
+                        : "text-gray-600"}>
                       {row.map((cell, j) => (
                         <td key={j} className="px-3 py-2 border-b border-gray-100 whitespace-nowrap">{String(cell ?? "")}</td>
                       ))}
@@ -1430,12 +1762,18 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
               {preview.length >= 6 && <p className="text-xs text-gray-400 px-3 py-2">Showing first 5 rows…</p>}
             </div>
           )}
+
+          {hasInvalid && (
+            <p className="text-xs text-red-500">
+              {invalidRowIdx.size} row{invalidRowIdx.size === 1 ? "" : "s"} missing required SSO or Full Name (highlighted above). Fix before importing.
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-3 px-6 pb-5">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} disabled={!fileName}
-            className="px-5 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Import {preview.length > 1 ? `${preview.length - 1} Performers` : ""}
+          <button onClick={onClose} disabled={!fileName || hasInvalid}
+            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            Import {dataRows.length > 0 ? `${dataRows.length} Performer${dataRows.length === 1 ? "" : "s"}` : ""}
           </button>
         </div>
       </div>
@@ -1483,7 +1821,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
                 ["special", "Special Event"],
               ] as const).map(([val, lbl]) => (
                 <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-indigo-500" />
+                  <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-brand-500" />
                   <span className="text-sm text-gray-700">{lbl}</span>
                 </label>
               ))}
@@ -1495,7 +1833,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
                 <select value={show} onChange={(e) => { setShow(e.target.value); setRole(""); }}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700">
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700">
                   <option value="">Please Choose</option>
                   {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                 </select>
@@ -1503,7 +1841,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
                 <select value={role} onChange={(e) => setRole(e.target.value)} disabled={!show}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-gray-700 disabled:opacity-50">
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 disabled:opacity-50">
                   <option value="">Please Choose</option>
                   {rolesForShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
                 </select>
@@ -1518,7 +1856,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
                 ["home", "Home Cast"], ["swing", "Swing Cast"],
               ] as const).map(([val, lbl]) => (
                 <button key={val} onClick={() => setCastType(val)}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                   {lbl}
                 </button>
               ))}
@@ -1528,7 +1866,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
         <div className="flex justify-end gap-3 px-6 pb-5">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
-            className="px-5 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 disabled:opacity-40 transition-colors">Save</button>
+            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Save</button>
         </div>
       </div>
     </div>
@@ -1546,15 +1884,15 @@ function PerformerCard({ actor, index, type, roleLabel, selected, onSelect }: {
   return (
     <>
       {open && <ActorDetailDrawer actor={actor} roleLabel={roleLabel} onClose={() => setOpen(false)} />}
-      <div className={`group relative bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 ${selected ? "border-indigo-400 ring-2 ring-indigo-200" : "border-gray-100"}`}>
+      <div className={`group relative bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 ${selected ? "border-brand-400 ring-2 ring-brand-200" : "border-gray-100"}`}>
         <div className="absolute top-2 left-2 z-10">
-          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-indigo-500 text-white" : "bg-amber-400 text-amber-900"}`}>
+          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-brand-500 text-white" : "bg-amber-400 text-amber-900"}`}>
             {type === "home" ? `H${index + 1}` : `S${index + 1}`}
           </span>
         </div>
         {onSelect && (
           <button onClick={(e) => { e.stopPropagation(); onSelect(); }}
-            className={`absolute top-2 right-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selected ? "bg-indigo-500 border-indigo-500 text-white" : "border-white/70 bg-black/20 text-transparent group-hover:border-white"}`}>
+            className={`absolute top-2 right-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selected ? "bg-brand-500 border-brand-500 text-white" : "border-white/70 bg-black/20 text-transparent group-hover:border-white"}`}>
             {selected && <Check className="w-3 h-3" />}
           </button>
         )}
@@ -1572,23 +1910,24 @@ function PerformerCard({ actor, index, type, roleLabel, selected, onSelect }: {
             <span>{actor.flag}</span>
             <span>{actor.height}cm</span>
           </div>
+          {actor.skillEntries && actor.skillEntries.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {actor.skillEntries.slice(0, 2).map((e) => (
+                <span key={e.id}
+                  className={`inline-flex items-center px-1.5 py-0.5 text-[10px] rounded-full font-medium leading-tight ${SKILL_TAG_COLORS[e.type] ?? "bg-gray-100 text-gray-600"}`}>
+                  {e.skill}
+                </span>
+              ))}
+              {actor.skillEntries.length > 2 && (
+                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded-full font-medium leading-tight bg-gray-100 text-gray-500">
+                  +{actor.skillEntries.length - 2}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
-  );
-}
-
-// ── Vacancy Card ───────────────────────────────────────────────────────────
-
-function VacancyCard({ index, onAssign }: { index: number; onAssign: () => void }) {
-  return (
-    <div onClick={onAssign}
-      className="rounded-xl border-2 border-dashed border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/40 transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 text-gray-300 hover:text-indigo-400 aspect-[3/4]">
-      <div className="w-8 h-8 rounded-full border-2 border-current flex items-center justify-center">
-        <Plus className="w-4 h-4" />
-      </div>
-      <span className="text-xs font-medium">Vacant #{index + 1}</span>
-    </div>
   );
 }
 
@@ -1634,17 +1973,17 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
               <p className="text-xs text-gray-400 mt-0.5">{unassignedAll.length} performers without a home show/role</p>
             </div>
             <button onClick={() => setShowFilter((p) => !p)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
               <Filter className="w-4 h-4" />Filter
-              {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+              {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
             </button>
           </div>
           {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
           {selectedIds.size > 0 && (
-            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg">
-              <span className="text-xs text-indigo-700 font-medium">已选择{selectedIds.size}项</span>
+            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
+              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
               <button onClick={() => { onCast(Array.from(selectedIds)); }}
-                className="px-3.5 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-colors">
+                className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
                 Assign Role
               </button>
             </div>
@@ -1652,7 +1991,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           {unassigned.length === 0 ? (
             <p className="text-sm text-gray-300 py-8 text-center">{unassignedAll.length === 0 ? "All performers are assigned" : "No performers match the filters"}</p>
           ) : (
-            <div className="grid grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((a, i) => (
                 <PerformerCard key={a.id} actor={a} index={i} type="home" roleLabel="Unassigned"
                   selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} />
@@ -1678,14 +2017,10 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   }
 
   const allActors = castTab === "home" ? selectedRole.homeActors : selectedRole.swingActors;
-  const vacancy = castTab === "home" ? Math.max(0, selectedRole.headCount - selectedRole.homeActors.length) : 0;
 
   const filteredActors = allActors.filter((a) => actorMatchesFilters(a, filters));
 
-  const allItems = castTab === "home"
-    ? [...filteredActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i })),
-       ...Array.from({ length: vacancy }, (_, i) => ({ type: "vacant" as const, vacantIndex: i }))]
-    : filteredActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i }));
+  const allItems = filteredActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i }));
 
   const totalItems = allItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
@@ -1707,12 +2042,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setShowFilter((p) => !p)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 <Filter className="w-4 h-4" />Filter
-                {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+                {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
               <button onClick={() => onCast(Array.from(selectedIds))}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors shadow-sm">
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm">
                 <Users className="w-4 h-4" />{selectedIds.size > 0 ? `Assign Role (${selectedIds.size})` : "Assign Cast"}
               </button>
             </div>
@@ -1722,29 +2057,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
 
           {selectedIds.size > 0 && (
-            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg">
-              <span className="text-xs text-indigo-700 font-medium">已选择{selectedIds.size}项</span>
+            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
+              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
               <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
             </div>
           )}
-
-          {/* Headcount stats */}
-          <div className="flex items-center gap-2 mb-4">
-            <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
-              <span>编制</span><span className="font-bold text-gray-700">{selectedRole.headCount}</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded-full">
-              <span>在职</span><span className="font-bold">{selectedRole.homeActors.length}</span>
-            </div>
-            {vacancy > 0 && (
-              <div className="flex items-center gap-1.5 text-xs text-red-500 bg-red-50 px-3 py-1.5 rounded-full">
-                <span>空缺</span><span className="font-bold">{vacancy}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
-              <span>Swing</span><span className="font-bold">{selectedRole.swingActors.length}</span>
-            </div>
-          </div>
 
           {/* Home / Swing tabs */}
           <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-5">
@@ -1754,7 +2071,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
                 <button key={t} onClick={() => { setCastTab(t); setPage(1); setSelectedIds(new Set()); }}
                   className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${castTab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                   {t === "home" ? "Home Cast" : "Swing Cast"}
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${castTab === t ? (t === "home" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-700") : "bg-gray-200 text-gray-500"}`}>
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${castTab === t ? (t === "home" ? "bg-brand-100 text-brand-600" : "bg-amber-100 text-amber-700") : "bg-gray-200 text-gray-500"}`}>
                     {count}
                   </span>
                 </button>
@@ -1765,14 +2082,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           {totalItems === 0 ? (
             <p className="text-sm text-gray-300 py-8 text-center">No {castTab} cast assigned</p>
           ) : (
-            <div className="grid grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((item) =>
-                item.type === "actor"
-                  ? <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
-                      roleLabel={`${selectedShow.name} / ${selectedRole.name}`}
-                      selected={selectedIds.has(item.actor.id)}
-                      onSelect={() => toggleSelect(item.actor.id)} />
-                  : <VacancyCard key={`v-${item.vacantIndex}`} index={item.vacantIndex} onAssign={() => onCast([])} />
+                <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
+                  roleLabel={`${selectedShow.name} / ${selectedRole.name}`}
+                  selected={selectedIds.has(item.actor.id)}
+                  onSelect={() => toggleSelect(item.actor.id)} />
               )}
             </div>
           )}
@@ -1795,7 +2110,7 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
   const active = col === sortKey;
   return (
     <button onClick={() => onSort(col)} className="ml-1 inline-flex text-gray-300 hover:text-gray-600 transition-colors">
-      {active ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-indigo-500" /> : <ArrowDown className="w-3 h-3 text-indigo-500" />) : <ArrowUpDown className="w-3 h-3" />}
+      {active ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-brand-500" /> : <ArrowDown className="w-3 h-3 text-brand-500" />) : <ArrowUpDown className="w-3 h-3" />}
     </button>
   );
 }
@@ -1879,12 +2194,12 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
           )}
         </div>
         <button onClick={() => setShowFilter((p) => !p)}
-          className={`ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+          className={`ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
           <Filter className="w-4 h-4" />Filter
-          {activeFilterCount > 0 && <span className="text-[10px] bg-indigo-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+          {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
         </button>
         <span className="text-xs text-gray-400">{sorted.length} performers</span>
-        <button onClick={onImport} className="ml-auto h-9 flex items-center gap-1.5 px-4 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors">
+        <button onClick={onImport} className="ml-auto h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
           <Upload className="w-3.5 h-3.5" />Upload
         </button>
       </div>
@@ -1902,7 +2217,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
             <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
               <th className="w-12 px-4 py-3">
                 <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                  className="w-4 h-4 rounded border-gray-300 accent-indigo-500" />
+                  className="w-4 h-4 rounded border-gray-300 accent-brand-500" />
               </th>
               <th className="text-left px-4 py-3 font-semibold">Name</th>
               <th className="text-left px-4 py-3 font-semibold">SSO</th>
@@ -1926,7 +2241,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleOne(p.id)}
-                      className="w-4 h-4 rounded border-gray-300 accent-indigo-500" />
+                      className="w-4 h-4 rounded border-gray-300 accent-brand-500" />
                   </div>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
@@ -1943,7 +2258,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
                 </td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={() => setDrawerActor(p)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">View</button>
+                  <button onClick={() => setDrawerActor(p)} className="text-xs text-brand-500 hover:text-brand-700 font-medium transition-colors">View</button>
                 </td>
               </tr>
             ))}
@@ -1955,28 +2270,6 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
         totalItems={sorted.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </div>
   );
-}
-
-// ── Export Report ──────────────────────────────────────────────────────────
-
-function exportReport() {
-  const rows: (string | number)[][] = [
-    ["Show Name", "Role Name", "Headcount", "Incumbent", "Vacancy", "Swing Role Count"],
-  ];
-  DATA.forEach((land) => {
-    land.shows.forEach((show) => {
-      show.roles.forEach((role) => {
-        const incumbent = role.homeActors.length;
-        const vacancy = Math.max(0, role.headCount - incumbent);
-        rows.push([show.name, role.name, role.headCount, incumbent, vacancy, role.swingActors.length]);
-      });
-    });
-  });
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 14 }, { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Casting Report");
-  XLSX.writeFile(wb, "casting_book_report.xlsx");
 }
 
 // ── Left Sidebar ───────────────────────────────────────────────────────────
@@ -2013,39 +2306,32 @@ function LeftSidebar({
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-      {/* View Mode Selector */}
+      {/* View Mode Segmented Switch */}
       <div className="px-3 py-3 border-b border-gray-100">
-        <div className="relative">
-          <select value={viewMode} onChange={(e) => onChangeViewMode(e.target.value as ViewMode)}
-            className="w-full h-9 pl-9 pr-8 border border-gray-200 rounded-lg text-sm font-medium text-indigo-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-200">
-            <option value="card">View by Card</option>
-            <option value="roster">View by Roster</option>
-          </select>
-          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none">
-            {viewMode === "card" ? <LayoutGrid className="w-4 h-4" /> : <List className="w-4 h-4" />}
-          </div>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+          {([
+            ["card", "Card", LayoutGrid],
+            ["roster", "Roster", List],
+          ] as const).map(([val, lbl, Icon]) => (
+            <button key={val} onClick={() => onChangeViewMode(val)}
+              className={`flex-1 flex items-center justify-center gap-1.5 h-7 rounded-md text-xs font-medium transition-all ${viewMode === val ? "bg-brand-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+              <Icon className="w-3.5 h-3.5" />{lbl}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Search */}
       <div className="px-3 py-2 border-b border-gray-100">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="请输入SSO/姓名"
-          className="w-full h-8 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-gray-300" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Show or role name"
+          className="w-full h-8 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 placeholder:text-gray-300" />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
-        {/* Unassigned */}
-        <button onClick={onSelectUnassigned}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors ${showUnassigned ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
-          <span>Unassigned</span>
-          <span className={`text-xs ${showUnassigned ? "text-indigo-600" : "text-gray-400"}`}>({unassignedCount})</span>
-        </button>
-
         {/* Regular Show group */}
-        <div className="mt-2">
+        <div>
           <button onClick={() => setRegularExpanded((p) => !p)}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-indigo-700 font-bold hover:bg-gray-50 transition-colors">
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-brand-700 font-bold hover:bg-gray-50 transition-colors">
             <span>Regular Show <span className="text-gray-500 font-normal text-xs">({regularShowTotal})</span></span>
             {regularExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
           </button>
@@ -2059,10 +2345,10 @@ function LeftSidebar({
             return (
               <div key={show.id}>
                 <button onClick={() => { onSelectShow(show.id); toggleExpand(show.id); }}
-                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${isShowSelected ? "bg-indigo-50 text-indigo-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
+                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${isShowSelected ? "bg-brand-50 text-brand-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
                   <span className="flex items-center gap-1.5">
                     <span>{show.name}</span>
-                    <span className={`text-xs ${isShowSelected ? "text-indigo-500" : "text-gray-400"}`}>({showCount})</span>
+                    <span className={`text-xs ${isShowSelected ? "text-brand-500" : "text-gray-400"}`}>({showCount})</span>
                   </span>
                   {show.roles.length > 0 && (expanded
                     ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
@@ -2072,9 +2358,9 @@ function LeftSidebar({
                   const isRoleSelected = role.id === selectedRoleId && !showUnassigned;
                   return (
                     <button key={role.id} onClick={() => onSelectRole(show.id, role.id)}
-                      className={`w-full flex items-center justify-between pl-12 pr-3 py-1.5 rounded-lg text-left text-xs transition-colors ${isRoleSelected ? "bg-indigo-100 text-indigo-700 font-semibold" : "text-gray-600 hover:bg-gray-50"}`}>
+                      className={`w-full flex items-center justify-between pl-12 pr-3 py-1.5 rounded-lg text-left text-xs transition-colors ${isRoleSelected ? "bg-brand-100 text-brand-700 font-semibold" : "text-gray-600 hover:bg-gray-50"}`}>
                       <span>{role.name}</span>
-                      <span className={`${isRoleSelected ? "text-indigo-500" : "text-gray-400"}`}>({role.homeActors.length})</span>
+                      <span className={`${isRoleSelected ? "text-brand-500" : "text-gray-400"}`}>({role.homeActors.length})</span>
                     </button>
                   );
                 })}
@@ -2093,6 +2379,15 @@ function LeftSidebar({
           {specialExpanded && (
             <p className="px-6 py-2 text-xs text-gray-300">No special events</p>
           )}
+        </div>
+
+        {/* Unassigned (always at the bottom) */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <button onClick={onSelectUnassigned}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors ${showUnassigned ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
+            <span>Unassigned</span>
+            <span className={`text-xs ${showUnassigned ? "text-brand-600" : "text-gray-400"}`}>({unassignedCount})</span>
+          </button>
         </div>
       </nav>
     </aside>
@@ -2122,15 +2417,11 @@ export default function CastingBookPage() {
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-5 flex items-center justify-between z-30">
+      <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-5 flex items-center z-30">
         <div className="flex items-center gap-2.5">
-          <BookOpen className="w-5 h-5 text-indigo-500" />
+          <BookOpen className="w-5 h-5 text-brand-500" />
           <span className="font-bold text-gray-900 text-base">Casting Book</span>
         </div>
-        <button onClick={exportReport}
-          className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-          <Download className="w-3.5 h-3.5" />Export Report
-        </button>
       </header>
 
       {/* Sidebar + Main Content (left-right layout) */}

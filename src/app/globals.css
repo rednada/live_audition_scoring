@@ -10,6 +10,17 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Tencent Blue brand palette */
+  --color-brand-50: #E6EEFB;
+  --color-brand-100: #CCDDF7;
+  --color-brand-200: #99BBEF;
+  --color-brand-300: #6699E7;
+  --color-brand-400: #3377DF;
+  --color-brand-500: #0052D9;
+  --color-brand-600: #0040A8;
+  --color-brand-700: #002E78;
+  --color-brand: #0052D9;
 }
 
 @media (prefers-color-scheme: dark) {
