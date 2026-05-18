@@ -1,15 +1,18 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
   RotateCcw, Eye, Users, Film, Plus, Paperclip,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
-  Filter, Check, Menu,
+  Filter, Check, Menu, ArrowLeft,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import BottomSheet from "@/components/BottomSheet";
+import useDocumentTitle from "@/lib/useDocumentTitle";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -466,12 +469,14 @@ function ConfirmDialog({ title, message, confirmLabel = "Confirm", onConfirm, on
 
 // ── Section Header ─────────────────────────────────────────────────────────
 
-function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onEdit, onSave, onCancel, onAdd, addLabel }: {
+function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onEdit, onSave, onCancel, onAdd, addLabel, mobileReadonly }: {
   title: string; count?: number; editing: boolean;
   onToggleCollapse: () => void; collapsed: boolean;
   onEdit?: () => void; onSave?: () => void; onCancel?: () => void;
   onAdd?: () => void; addLabel?: string;
+  mobileReadonly?: boolean;
 }) {
+  const editClasses = mobileReadonly ? "hidden md:flex" : "flex";
   return (
     <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
       onClick={onToggleCollapse}>
@@ -484,13 +489,13 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         {!editing && !collapsed && onAdd && (
           <button onClick={onAdd}
-            className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-50 transition-colors">
+            className={`${editClasses} items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-50 transition-colors`}>
             <Plus className="w-3 h-3" />{addLabel ?? "Add"}
           </button>
         )}
         {!editing && !collapsed && onEdit && (
           <button onClick={onEdit}
-            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+            className={`${editClasses} items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors`}>
             <Pencil className="w-3 h-3" />Edit
           </button>
         )}
@@ -774,12 +779,27 @@ const MEAS_GROUPS: { col: ("left" | "mid" | "right"); label: string; key: keyof 
   { col: "right", label: "Hips 臀围(cm)", key: "hips", kind: "num" },
 ];
 
+// Mobile groupings per 0518 spec: 4 logical sections, first shown by default.
+const MEAS_MOBILE_GROUPS: { title: string; keys: (keyof Measurements)[] }[] = [
+  { title: "整体与头部", keys: ["height", "weight", "headCircumference"] },
+  { title: "肩颈与宽度", keys: ["neck", "acrossShoulderBack", "acrossFront", "acrossBack"] },
+  { title: "躯干围度", keys: ["chest", "waist", "hips", "braSize"] },
+  { title: "四肢与其他", keys: ["bicep", "wrist", "sneakerSize"] },
+];
+
+const MEAS_LABEL_BY_KEY: Partial<Record<keyof Measurements, { label: string; kind: "num" | "str" }>> = (() => {
+  const m: Partial<Record<keyof Measurements, { label: string; kind: "num" | "str" }>> = {};
+  for (const g of MEAS_GROUPS) m[g.key] = { label: g.label, kind: g.kind };
+  return m;
+})();
+
 function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed, onToggleCollapse, onEdit, onSave, onCancel, onUpload }: {
   meas: Measurements; measDraft: Measurements; setMeasDraft: (m: Measurements) => void;
   editing: boolean; collapsed: boolean;
   onToggleCollapse: () => void; onEdit: () => void; onSave: () => void; onCancel: () => void;
   onUpload: () => void;
 }) {
+  const [mobileExpandAll, setMobileExpandAll] = useState(false);
   const cols: Record<"left" | "mid" | "right", typeof MEAS_GROUPS> = { left: [], mid: [], right: [] };
   MEAS_GROUPS.forEach((g) => cols[g.col].push(g));
 
@@ -831,11 +851,11 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
                 Update Info: <span className="text-gray-600">{meas.updateInfo.date || "—"}</span>
               </span>
               <button onClick={onUpload}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                className="hidden md:flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
                 <Upload className="w-3 h-3" />Upload
               </button>
               <button onClick={onEdit}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                className="hidden md:flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
                 <Pencil className="w-3 h-3" />Edit
               </button>
             </>
@@ -856,15 +876,46 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
         </div>
       </div>
       {!collapsed && (
-        <div className="px-4 sm:px-5 pb-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 divide-x-0">
-            {(["left", "mid", "right"] as const).map((c) => (
-              <div key={c} className="divide-y divide-gray-50">
-                {cols[c].map((g) => <div key={g.key as string}>{renderCell(g)}</div>)}
-              </div>
-            ))}
+        <>
+          {/* Desktop layout — 3 columns of all fields */}
+          <div className="hidden md:block px-4 sm:px-5 pb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 divide-x-0">
+              {(["left", "mid", "right"] as const).map((c) => (
+                <div key={c} className="divide-y divide-gray-50">
+                  {cols[c].map((g) => <div key={g.key as string}>{renderCell(g)}</div>)}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+
+          {/* Mobile layout — 4 grouped sections, first by default; "Show All" expands the rest */}
+          <div className="md:hidden px-5 pb-4 space-y-3">
+            {MEAS_MOBILE_GROUPS.map((mg, gi) => {
+              if (gi > 0 && !mobileExpandAll) return null;
+              return (
+                <div key={mg.title} className="rounded-xl border border-gray-100 bg-white">
+                  <div className="px-3 py-2 border-b border-gray-50 text-[12px] font-semibold text-gray-700">{mg.title}</div>
+                  <div className="px-3 py-1 divide-y divide-gray-50">
+                    {mg.keys.map((k) => {
+                      const info = MEAS_LABEL_BY_KEY[k];
+                      if (!info) return null;
+                      const group = MEAS_GROUPS.find((g) => g.key === k);
+                      if (!group) return null;
+                      return <div key={k as string}>{renderCell(group)}</div>;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setMobileExpandAll((p) => !p)}
+              className="w-full h-9 rounded-lg border border-gray-200 text-xs text-gray-600 flex items-center justify-center gap-1"
+            >
+              {mobileExpandAll ? <>收起 <ChevronUp className="w-3.5 h-3.5" /></> : <>展开全部 <ChevronDown className="w-3.5 h-3.5" /></>}
+            </button>
+          </div>
+        </>
       )}
     </>
   );
@@ -980,10 +1031,69 @@ function MeasurementImportModal({ onClose, onApply, ssoId }: {
   );
 }
 
+// ── Basic Info — mobile-only sub page ──────────────────────────────────────
+
+function BasicInfoMobile({ actor, headshotUrl, onBack }: {
+  actor: Actor; headshotUrl: string; onBack: () => void;
+}) {
+  const fields: { label: string; value: string }[] = [
+    { label: "SSO", value: actor.ssoId },
+    { label: "Name", value: actor.name },
+    { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
+    { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
+    { label: "Employee Class", value: actor.employeeClass ?? "—" },
+    { label: "Height", value: `${actor.height} cm` },
+    { label: "Weight", value: `${actor.weight} kg` },
+    { label: "Home Show", value: actor.homeShow ?? "—" },
+    { label: "Home Role", value: actor.homeRole ?? "—" },
+    { label: "Offer Show", value: actor.offerShow ?? "—" },
+    { label: "Offer Role", value: actor.offerRole ?? "—" },
+    { label: "Contract Start", value: actor.contractStartDate ?? "—" },
+    { label: "Contract End", value: actor.contractEndDate ?? "—" },
+    { label: "ID/Passport Valid End Date", value: actor.idPassportEndDate ?? "—" },
+  ];
+
+  return (
+    <div className="md:hidden fixed inset-0 z-[55] bg-white flex flex-col">
+      <div className="flex-shrink-0 h-12 flex items-center px-2 border-b border-gray-100 bg-white">
+        <button onClick={onBack} aria-label="Back"
+          className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <span className="ml-1 text-sm font-semibold text-gray-900">Basic Info</span>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="flex items-center gap-3 px-4 py-4 bg-gray-50 border-b border-gray-100">
+          <img src={headshotUrl} alt={actor.name}
+            className="w-14 h-14 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
+          <div className="min-w-0">
+            <p className="text-base font-bold text-gray-900 truncate">{actor.name}</p>
+            <p className="text-xs text-gray-400 font-mono">{actor.ssoId}</p>
+          </div>
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {fields.map(({ label, value }) => (
+            <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+              <span className="text-sm text-gray-800 text-right truncate">{value}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ── Actor Detail Drawer ────────────────────────────────────────────────────
 
-function ActorDetailDrawer({ actor, roleLabel, onClose }: {
-  actor: Actor; roleLabel: string; onClose: () => void;
+function ActorDetailDrawer({
+  actor, roleLabel, section, onClose, onOpenSection,
+}: {
+  actor: Actor;
+  roleLabel: string;
+  section?: "basic" | null;
+  onClose: () => void;
+  onOpenSection: (s: "basic" | null) => void;
 }) {
   const headshotInputRef = useRef<HTMLInputElement>(null);
   const [headshotUrl, setHeadshotUrl] = useState(actor.photoUrl);
@@ -1052,7 +1162,13 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
     if (!f) return;
     const url = URL.createObjectURL(f);
     const type: "photo" | "video" = f.type.startsWith("video") ? "video" : "photo";
-    setMediaForm((p) => ({ ...p, file: f, url, type }));
+    // Desktop inline-add flow has addingMedia=true; route to preview/note form.
+    // Mobile trailing "+" tile bypasses that — append directly.
+    if (addingMedia) {
+      setMediaForm((p) => ({ ...p, file: f, url, type }));
+    } else {
+      setMediaFiles((p) => [...p, { type, url, note: "" }]);
+    }
     e.target.value = "";
   }
 
@@ -1182,25 +1298,48 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
           if (f) setHeadshotUrl(URL.createObjectURL(f));
           e.target.value = "";
         }} />
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-[528px] bg-white shadow-2xl flex flex-col">
+      {section === "basic" && (
+        <BasicInfoMobile actor={actor} headshotUrl={headshotUrl} onBack={() => onOpenSection(null)} />
+      )}
+      <div className="hidden md:block fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className={`fixed inset-0 md:inset-y-0 md:right-0 md:left-auto z-50 md:w-full md:max-w-[528px] bg-white md:shadow-2xl flex flex-col ${section === "basic" ? "hidden md:flex" : ""}`}>
+
+        {/* Mobile titlebar (full-screen mode) */}
+        <div className="md:hidden flex-shrink-0 h-12 flex items-center px-2 border-b border-gray-100 bg-white">
+          <button onClick={onClose} aria-label="Back"
+            className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <span className="ml-1 text-sm font-semibold text-gray-900 truncate">{actor.name}</span>
+        </div>
 
         {/* Photo header with headshot replacement */}
         <div className="relative flex-shrink-0 h-40 sm:h-48 bg-gray-100 group/headshot">
           <img src={headshotUrl} alt={actor.name} className="w-full h-full object-cover object-top" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
           <button onClick={onClose}
-            className="absolute top-4 right-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
+            className="hidden md:flex absolute top-4 right-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full items-center justify-center text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
-          {/* Replace headshot button */}
+          {/* Replace headshot button (mobile shows it always, desktop on hover) */}
           <button onClick={() => headshotInputRef.current?.click()}
-            className="absolute top-4 right-14 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/headshot:opacity-100">
+            className="md:hidden absolute top-4 left-4 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
+            <Camera className="w-4 h-4" />
+          </button>
+          <button onClick={() => headshotInputRef.current?.click()}
+            className="hidden md:flex absolute top-4 right-14 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full items-center justify-center text-white transition-colors opacity-0 group-hover/headshot:opacity-100">
             <Camera className="w-4 h-4" />
           </button>
           <div className="absolute bottom-4 left-5 right-5">
             <p className="text-xs text-gray-300 mb-0.5">{roleLabel}</p>
-            <p className="text-xl font-bold text-white leading-tight truncate">{actor.name}</p>
+            <button
+              type="button"
+              onClick={() => onOpenSection("basic")}
+              className="md:pointer-events-none md:cursor-default flex items-center gap-1 w-full text-left"
+            >
+              <span className="text-xl font-bold text-white leading-tight truncate flex-1 min-w-0">{actor.name}</span>
+              <ChevronRight className="md:hidden w-5 h-5 text-white/80 flex-shrink-0" />
+            </button>
           </div>
         </div>
 
@@ -1270,11 +1409,68 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               onCancel={cancelSkill}
               onSave={saveSkill}
             />
+            {/* Mobile bottom sheet for adding a skill */}
+            <div className="md:hidden">
+              <BottomSheet
+                open={addingSkill}
+                onClose={cancelSkill}
+                title="Add Skillset"
+                footer={
+                  <div className="flex gap-2">
+                    <button onClick={cancelSkill}
+                      className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+                    <button onClick={saveSkill}
+                      className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Save</button>
+                  </div>
+                }
+              >
+                {skillDrafts.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {skillDrafts.map((d) => (
+                      <span key={d.id}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full font-medium ${SKILL_TAG_COLORS[d.type] ?? "bg-gray-100 text-gray-600"}`}>
+                        <span>{d.skill}</span>
+                        <button onClick={() => setSkillDrafts((p) => p.filter((x) => x.id !== d.id))}
+                          className="ml-0.5 hover:opacity-70 transition-opacity">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-3">
+                  <div>
+                    <label className={labelCls}>Skill Type</label>
+                    <select value={skillForm.type}
+                      onChange={(e) => setSkillForm({ type: e.target.value, skill: "" })}
+                      className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
+                      <option value="">Select type</option>
+                      {SKILLSET_CATEGORIES.map((c) => <option key={c.type} value={c.type}>{c.type}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Skill</label>
+                    <select value={skillForm.skill}
+                      onChange={(e) => setSkillForm((f) => ({ ...f, skill: e.target.value }))}
+                      disabled={!skillForm.type}
+                      className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white disabled:opacity-50">
+                      <option value="">Select skill</option>
+                      {skillsForType.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={appendSkillDraft}
+                    disabled={!skillForm.type || !skillForm.skill}
+                    className="w-full h-10 bg-brand-50 hover:bg-brand-100 disabled:opacity-40 text-brand-700 rounded-lg text-sm font-medium flex items-center justify-center gap-1">
+                    <Plus className="w-4 h-4" />Add another
+                  </button>
+                </div>
+              </BottomSheet>
+            </div>
             {!collapsed.skills && (
               <div className="px-5 pb-4">
-                {/* Add form — supports multiple in a row */}
+                {/* Add form — desktop inline (mobile uses BottomSheet above) */}
                 {addingSkill && (
-                  <div className="mb-3 p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+                  <div className="hidden md:block mb-3 p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
                     {/* Pending drafts list */}
                     {skillDrafts.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
@@ -1378,10 +1574,11 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                     </div>
                   </div>
                 )}
+                {/* Desktop grid */}
                 {mediaFiles.length === 0 && !addingMedia ? (
-                  <p className="text-xs text-gray-300 py-3 text-center">No media files</p>
+                  <p className="hidden md:block text-xs text-gray-300 py-3 text-center">No media files</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="hidden md:grid grid-cols-3 gap-2">
                     {mediaFiles.map((f, i) => (
                       <div key={i} className="group/media">
                         <div className="relative rounded-xl overflow-hidden bg-gray-100 aspect-[3/4]">
@@ -1414,6 +1611,43 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                     ))}
                   </div>
                 )}
+                {/* Mobile: single-row horizontal scroller */}
+                <div className="md:hidden -mx-5 px-5 flex gap-2 overflow-x-auto snap-x snap-mandatory pb-1">
+                  {mediaFiles.map((f, i) => (
+                    <div key={i} className="relative w-28 h-36 flex-shrink-0 snap-start rounded-xl overflow-hidden bg-gray-100">
+                      <img src={f.url} alt="" className="w-full h-full object-cover object-top"
+                        onClick={() => setLightboxIdx(i)} loading="lazy" />
+                      {f.type === "video" && (
+                        <>
+                          <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+                          <Play className="absolute inset-0 m-auto w-5 h-5 text-white fill-white pointer-events-none" />
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          askConfirm("Remove media", "This media file will be removed from the portfolio. Continue?",
+                            () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)));
+                        }}
+                        aria-label="Remove media"
+                        className="absolute top-1 right-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {/* Trailing "+" tile */}
+                  <button
+                    type="button"
+                    onClick={() => portfolioInputRef.current?.click()}
+                    aria-label="Add media"
+                    className="w-28 h-36 flex-shrink-0 snap-start rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-1 text-gray-300"
+                  >
+                    <Plus className="w-5 h-5" />
+                    <span className="text-[11px]">Add</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1430,9 +1664,56 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
             />
             {!collapsed.showRole && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Add form */}
+                {/* Mobile bottom sheet for adding a Show & Role */}
+                <div className="md:hidden">
+                  <BottomSheet open={addingShowRole}
+                    onClose={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
+                    title="Add Show & Role"
+                    footer={
+                      <div className="flex gap-2">
+                        <button onClick={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
+                          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+                        <button onClick={saveShowRole}
+                          disabled={!showRoleForm.show || !showRoleForm.role}
+                          className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
+                      </div>
+                    }
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <label className={labelCls}>Show</label>
+                        <select value={showRoleForm.show}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, show: e.target.value, role: "" }))}
+                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
+                          <option value="">Please Choose</option>
+                          {DATA.flatMap((l) => l.shows).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role</label>
+                        <select value={showRoleForm.role}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, role: e.target.value }))}
+                          disabled={!showRoleForm.show}
+                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white disabled:opacity-50">
+                          <option value="">Please Choose</option>
+                          {rolesForFormShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role Type</label>
+                        <select value={showRoleForm.roleType}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, roleType: e.target.value as "home" | "swing" }))}
+                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
+                          <option value="home">Home</option>
+                          <option value="swing">Swing</option>
+                        </select>
+                      </div>
+                    </div>
+                  </BottomSheet>
+                </div>
+                {/* Add form — desktop inline */}
                 {addingShowRole && (
-                  <div className="p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
+                  <div className="hidden md:block p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
                     <div className="grid grid-cols-3 gap-2">
                       <div><label className={labelCls}>Show</label>
                         <select value={showRoleForm.show}
@@ -1545,9 +1826,61 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
             />
             {!collapsed.event && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Add form — enum dropdowns */}
+                {/* Mobile bottom sheet for adding Event Experience */}
+                <div className="md:hidden">
+                  <BottomSheet open={addingEvent}
+                    onClose={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
+                    title="Add Event Experience"
+                    footer={
+                      <div className="flex gap-2">
+                        <button onClick={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
+                          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+                        <button onClick={saveEvent}
+                          disabled={!eventForm.eventName || !eventForm.roleName || !eventForm.startDate}
+                          className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
+                      </div>
+                    }
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <label className={labelCls}>Event Name</label>
+                        <select value={eventForm.eventName}
+                          onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value, roleName: "" }))}
+                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
+                          <option value="">Please Choose</option>
+                          {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role Name</label>
+                        <select value={eventForm.roleName}
+                          onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))}
+                          disabled={!eventForm.eventName}
+                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white disabled:opacity-50">
+                          <option value="">Please Choose</option>
+                          {eventRolesForForm.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className={labelCls}>Start Date</label>
+                          <input type="date" value={eventForm.startDate}
+                            onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))}
+                            className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>End Date</label>
+                          <input type="date" value={eventForm.endDate}
+                            onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))}
+                            className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm" />
+                        </div>
+                      </div>
+                    </div>
+                  </BottomSheet>
+                </div>
+                {/* Add form — desktop inline */}
                 {addingEvent && (
-                  <div className="p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
+                  <div className="hidden md:block p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
                     <div className="grid grid-cols-2 gap-2">
                       <div><label className={labelCls}>Event Name</label>
                         <select value={eventForm.eventName}
@@ -1617,6 +1950,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
               editing={false} collapsed={collapsed.attachments}
               onToggleCollapse={() => toggle("attachments")}
               onAdd={() => attachInputRef.current?.click()} addLabel="Add"
+              mobileReadonly
             />
             {!collapsed.attachments && (
               <div className="px-5 pb-4 space-y-2">
@@ -1624,12 +1958,19 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                   <p className="text-xs text-gray-300 py-3 text-center">No attachments</p>
                 )}
                 {attachments.map((att) => (
-                  <div key={att.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
+                  <div key={att.id}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50 md:cursor-default cursor-pointer active:bg-gray-100"
+                    onClick={() => {
+                      // mobile: open the file for online preview (no real URL in mock data → no-op)
+                      const url = (att as Attachment & { url?: string }).url;
+                      if (url) window.open(url, "_blank");
+                    }}
+                  >
                     <Paperclip className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <span className="text-xs text-gray-700 flex-1 truncate">{att.name}</span>
-                    <button onClick={() => askConfirm("Remove attachment", `Remove "${att.name}"?`,
-                      () => setAttachments((p) => p.filter((a) => a.id !== att.id)))}
-                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); askConfirm("Remove attachment", `Remove "${att.name}"?`,
+                      () => setAttachments((p) => p.filter((a) => a.id !== att.id))); }}
+                      className="hidden md:inline-flex text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1639,10 +1980,11 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
           </div>
         </div>
 
-        {/* Footer — just close */}
-        <div className="border-t border-gray-100 px-5 py-4 flex-shrink-0">
+        {/* Footer — just close (desktop only; mobile uses titlebar back button) */}
+        <div className="hidden md:block border-t border-gray-100 px-5 py-4 flex-shrink-0">
           <button onClick={onClose} className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
         </div>
+        <div className="md:hidden flex-shrink-0" style={{ height: "env(safe-area-inset-bottom)" }} aria-hidden="true" />
       </div>
     </>
   );
@@ -1805,87 +2147,106 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
   const rolesForShow = ALL_SHOWS.find((s) => s.name === show)?.roles ?? [];
   const canSave = (assignToType === "special") || (!!show && !!role);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900 text-sm sm:text-base">
-            Batch Assign for {target.ids.length} Performer{target.ids.length === 1 ? "" : "s"}
-          </h2>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
+  const body = (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
+        <div className="flex items-center gap-5">
+          {([
+            ["regular", "Regular Show"],
+            ["special", "Special Event"],
+          ] as const).map(([val, lbl]) => (
+            <label key={val} className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-brand-500" />
+              <span className="text-sm text-gray-700">{lbl}</span>
+            </label>
+          ))}
         </div>
-        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
-            <div className="flex items-center gap-5">
-              {([
-                ["regular", "Regular Show"],
-                ["special", "Special Event"],
-              ] as const).map(([val, lbl]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-brand-500" />
-                  <span className="text-sm text-gray-700">{lbl}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+      </div>
 
-          {assignToType === "regular" && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
-                <select value={show} onChange={(e) => { setShow(e.target.value); setRole(""); }}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700">
-                  <option value="">Please Choose</option>
-                  {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
-                <select value={role} onChange={(e) => setRole(e.target.value)} disabled={!show}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 disabled:opacity-50">
-                  <option value="">Please Choose</option>
-                  {rolesForShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-                </select>
-              </div>
-            </>
-          )}
-
+      {assignToType === "regular" && (
+        <>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Cast Type</label>
-            <div className="flex gap-2">
-              {([
-                ["home", "Home Cast"], ["swing", "Swing Cast"],
-              ] as const).map(([val, lbl]) => (
-                <button key={val} onClick={() => setCastType(val)}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
+            <select value={show} onChange={(e) => { setShow(e.target.value); setRole(""); }}
+              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700">
+              <option value="">Please Choose</option>
+              {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
           </div>
-        </div>
-        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
-          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
-            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Save</button>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+            <select value={role} onChange={(e) => setRole(e.target.value)} disabled={!show}
+              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 disabled:opacity-50">
+              <option value="">Please Choose</option>
+              {rolesForShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+            </select>
+          </div>
+        </>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Cast Type</label>
+        <div className="flex gap-2">
+          {([
+            ["home", "Home Cast"], ["swing", "Swing Cast"],
+          ] as const).map(([val, lbl]) => (
+            <button key={val} onClick={() => setCastType(val)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              {lbl}
+            </button>
+          ))}
         </div>
       </div>
     </div>
+  );
+
+  const title = `Batch Assign for ${target.ids.length} Performer${target.ids.length === 1 ? "" : "s"}`;
+
+  return (
+    <>
+      {/* Desktop centered modal */}
+      <div className="hidden md:flex fixed inset-0 z-50 items-center justify-center bg-black/40 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900 text-sm sm:text-base">{title}</h2>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">{body}</div>
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
+            <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+            <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
+              className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Save</button>
+          </div>
+        </div>
+      </div>
+      {/* Mobile bottom sheet */}
+      <div className="md:hidden">
+        <BottomSheet open onClose={onClose} title={title}
+          footer={
+            <div className="flex gap-2">
+              <button onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+              <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
+                className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
+            </div>
+          }
+        >
+          {body}
+        </BottomSheet>
+      </div>
+    </>
   );
 }
 
 // ── Performer Card ─────────────────────────────────────────────────────────
 
-function PerformerCard({ actor, index, type, roleLabel, selected, onSelect }: {
-  actor: Actor; index: number; type: "home" | "swing"; roleLabel: string;
-  selected?: boolean; onSelect?: () => void;
+function PerformerCard({ actor, index, type, selected, onSelect, onOpen }: {
+  actor: Actor; index: number; type: "home" | "swing";
+  selected?: boolean; onSelect?: () => void; onOpen: (id: number) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
     <>
-      {open && <ActorDetailDrawer actor={actor} roleLabel={roleLabel} onClose={() => setOpen(false)} />}
       <div className={`group relative bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 ${selected ? "border-brand-400 ring-2 ring-brand-200" : "border-gray-100"}`}>
         <div className="absolute top-2 left-2 z-10">
           <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-brand-500 text-white" : "bg-amber-400 text-amber-900"}`}>
@@ -1898,7 +2259,7 @@ function PerformerCard({ actor, index, type, roleLabel, selected, onSelect }: {
             {selected && <Check className="w-3 h-3" />}
           </button>
         )}
-        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => setOpen(true)}>
+        <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => onOpen(actor.id)}>
           <img src={actor.photoUrl} alt={actor.name} className="absolute inset-0 w-full h-full object-cover object-top" loading="lazy" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
             <div className="opacity-0 group-hover:opacity-100 transition-opacity w-7 h-7 bg-white/90 rounded-full flex items-center justify-center shadow">
@@ -1935,10 +2296,11 @@ function PerformerCard({ actor, index, type, roleLabel, selected, onSelect }: {
 
 // ── Card View ──────────────────────────────────────────────────────────────
 
-function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, showUnassigned }: {
+function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, showUnassigned, onOpenActor }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
   onCast: (ids: number[]) => void; showUnassigned: boolean;
+  onOpenActor: (id: number) => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
@@ -1980,7 +2342,27 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
               {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
             </button>
           </div>
-          {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
+          {showFilter && (
+            <div className="hidden md:block">
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </div>
+          )}
+          <div className="md:hidden">
+            <BottomSheet open={showFilter} onClose={() => setShowFilter(false)} title="筛选"
+              footer={
+                <div className="flex gap-2">
+                  <button onClick={() => updateFilters(EMPTY_FILTERS)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <RotateCcw className="w-3.5 h-3.5" />Reset
+                  </button>
+                  <button onClick={() => setShowFilter(false)}
+                    className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Apply</button>
+                </div>
+              }
+            >
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </BottomSheet>
+          </div>
           {selectedIds.size > 0 && (
             <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
               <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
@@ -1995,8 +2377,8 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((a, i) => (
-                <PerformerCard key={a.id} actor={a} index={i} type="home" roleLabel="Unassigned"
-                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} />
+                <PerformerCard key={a.id} actor={a} index={i} type="home"
+                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor} />
               ))}
             </div>
           )}
@@ -2055,8 +2437,29 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
             </div>
           </div>
 
-          {/* Filter panel */}
-          {showFilter && <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />}
+          {/* Filter panel — desktop inline */}
+          {showFilter && (
+            <div className="hidden md:block">
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </div>
+          )}
+          {/* Filter — mobile bottom sheet */}
+          <div className="md:hidden">
+            <BottomSheet open={showFilter} onClose={() => setShowFilter(false)} title="筛选"
+              footer={
+                <div className="flex gap-2">
+                  <button onClick={() => updateFilters(EMPTY_FILTERS)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <RotateCcw className="w-3.5 h-3.5" />Reset
+                  </button>
+                  <button onClick={() => setShowFilter(false)}
+                    className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Apply</button>
+                </div>
+              }
+            >
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </BottomSheet>
+          </div>
 
           {selectedIds.size > 0 && (
             <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
@@ -2087,9 +2490,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((item) =>
                 <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
-                  roleLabel={`${selectedShow.name} / ${selectedRole.name}`}
                   selected={selectedIds.has(item.actor.id)}
-                  onSelect={() => toggleSelect(item.actor.id)} />
+                  onSelect={() => toggleSelect(item.actor.id)}
+                  onOpen={onOpenActor} />
               )}
             </div>
           )}
@@ -2117,13 +2520,13 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
   );
 }
 
-function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
+function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
   onImport: () => void;
   selectedShow: Show | null; selectedRole: Role | null; showUnassigned: boolean;
+  onOpenActor: (id: number) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [drawerActor, setDrawerActor] = useState<Actor | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [showFilter, setShowFilter] = useState(false);
@@ -2177,11 +2580,6 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
 
   return (
     <div className="flex flex-col h-full">
-      {drawerActor && (
-        <ActorDetailDrawer actor={drawerActor} roleLabel={`${drawerActor.homeShow ?? "—"} / ${drawerActor.homeRole ?? "—"}`}
-          onClose={() => setDrawerActor(null)} />
-      )}
-
       {/* Breadcrumb + action bar */}
       <div className="bg-white border-b border-gray-100 px-4 sm:px-5 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="text-sm sm:text-base min-w-0">
@@ -2207,10 +2605,26 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
       </div>
 
       {showFilter && (
-        <div className="px-4 sm:px-5 pt-4 bg-gray-50">
+        <div className="hidden md:block px-4 sm:px-5 pt-4 bg-gray-50">
           <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
         </div>
       )}
+      <div className="md:hidden">
+        <BottomSheet open={showFilter} onClose={() => setShowFilter(false)} title="筛选"
+          footer={
+            <div className="flex gap-2">
+              <button onClick={() => updateFilters(EMPTY_FILTERS)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center justify-center gap-1">
+                <RotateCcw className="w-3.5 h-3.5" />Reset
+              </button>
+              <button onClick={() => setShowFilter(false)}
+                className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Apply</button>
+            </div>
+          }
+        >
+          <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+        </BottomSheet>
+      </div>
 
       {/* Mobile card list (<md) */}
       <div className="md:hidden flex-1 overflow-y-auto bg-gray-50 px-3 py-3 space-y-2">
@@ -2219,7 +2633,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
         )}
         {pageRows.map((p) => (
           <div key={p.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-start gap-3 active:bg-gray-50"
-            onClick={() => setDrawerActor(p)}>
+            onClick={() => onOpenActor(p.id)}>
             <input
               type="checkbox"
               checked={selectedIds.has(p.id)}
@@ -2245,7 +2659,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
               </div>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); setDrawerActor(p); }}
+              onClick={(e) => { e.stopPropagation(); onOpenActor(p.id); }}
               className="flex-shrink-0 text-xs text-brand-500 hover:text-brand-700 font-medium px-2 py-1"
             >
               View
@@ -2302,7 +2716,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
                 </td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={() => setDrawerActor(p)} className="text-xs text-brand-500 hover:text-brand-700 font-medium transition-colors">View</button>
+                  <button onClick={() => onOpenActor(p.id)} className="text-xs text-brand-500 hover:text-brand-700 font-medium transition-colors">View</button>
                 </td>
               </tr>
             ))}
@@ -2321,19 +2735,20 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
 function LeftSidebar({
   viewMode, onChangeViewMode,
   selectedShowId, selectedRoleId, showUnassigned,
-  onSelectUnassigned, onSelectShow, onSelectRole,
+  onSelectUnassigned, onSelectRole,
   isMobileOpen, onClose,
 }: {
   viewMode: ViewMode; onChangeViewMode: (m: ViewMode) => void;
-  selectedShowId: string; selectedRoleId: string | null; showUnassigned: boolean;
+  selectedShowId: string | null; selectedRoleId: string | null; showUnassigned: boolean;
   onSelectUnassigned: () => void;
-  onSelectShow: (showId: string) => void;
   onSelectRole: (showId: string, roleId: string) => void;
   isMobileOpen: boolean;
   onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [expandedShowIds, setExpandedShowIds] = useState<Set<string>>(() => new Set([selectedShowId]));
+  const [expandedShowIds, setExpandedShowIds] = useState<Set<string>>(
+    () => new Set(selectedShowId ? [selectedShowId] : []),
+  );
   const [regularExpanded, setRegularExpanded] = useState(true);
   const [specialExpanded, setSpecialExpanded] = useState(false);
 
@@ -2402,14 +2817,14 @@ function LeftSidebar({
             const showMatches = matchesSearch(show.name);
             const matchingRoles = show.roles.filter((r) => showMatches || matchesSearch(r.name));
             if (search && !showMatches && matchingRoles.length === 0) return null;
-            const isShowSelected = show.id === selectedShowId && !showUnassigned && selectedRoleId === null;
+            const hasSelectedRole = show.id === selectedShowId && !showUnassigned && selectedRoleId !== null;
             return (
               <div key={show.id}>
-                <button onClick={() => { onSelectShow(show.id); toggleExpand(show.id); }}
-                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${isShowSelected ? "bg-brand-50 text-brand-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
+                <button onClick={() => toggleExpand(show.id)}
+                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${hasSelectedRole ? "text-brand-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
                   <span className="flex items-center gap-1.5">
                     <span>{show.name}</span>
-                    <span className={`text-xs ${isShowSelected ? "text-brand-500" : "text-gray-400"}`}>({showCount})</span>
+                    <span className={`text-xs ${hasSelectedRole ? "text-brand-500" : "text-gray-400"}`}>({showCount})</span>
                   </span>
                   {show.roles.length > 0 && (expanded
                     ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
@@ -2460,8 +2875,14 @@ function LeftSidebar({
 type ViewMode = "card" | "roster";
 
 export default function CastingBookPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const actorParam = searchParams.get("actor");
+  const sectionParam = searchParams.get("section") === "basic" ? "basic" : null;
+
   const [viewMode, setViewMode] = useState<ViewMode>("card");
-  const [selectedShowId, setSelectedShowId] = useState<string>(DATA[0].shows[0].id);
+  const [selectedShowId, setSelectedShowId] = useState<string | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
@@ -2479,21 +2900,83 @@ export default function CastingBookPage() {
   const selectedShow = useMemo(() => allShowsFlat.find((s) => s.id === selectedShowId) ?? null, [allShowsFlat, selectedShowId]);
   const selectedRole = useMemo(() => selectedRoleId ? selectedShow?.roles.find((r) => r.id === selectedRoleId) ?? null : null, [selectedShow, selectedRoleId]);
 
-  function selectShow(showId: string) { setSelectedShowId(showId); setSelectedRoleId(null); setCastTab("home"); setShowUnassigned(false); }
-  function selectRole(roleId: string) { setSelectedRoleId(roleId); setCastTab("home"); setShowUnassigned(false); }
+  function selectRole(showId: string, roleId: string) {
+    setSelectedShowId(showId);
+    setSelectedRoleId(roleId);
+    setCastTab("home");
+    setShowUnassigned(false);
+  }
+
+  const drawerActor = useMemo(() => {
+    if (!actorParam) return null;
+    const id = Number(actorParam);
+    if (Number.isNaN(id)) return null;
+    return PERFORMERS.find((p) => p.id === id) ?? null;
+  }, [actorParam]);
+
+  const pageTitle = drawerActor
+    ? sectionParam === "basic"
+      ? `${drawerActor.name} — Basic Info`
+      : drawerActor.name
+    : showUnassigned
+      ? "Unassigned — Casting Book"
+      : selectedRole
+        ? `${selectedShow?.name ?? ""} / ${selectedRole.name} — Casting Book`
+        : "Casting Book";
+  useDocumentTitle(pageTitle);
+
+  const openActor = useCallback(
+    (id: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("actor", String(id));
+      params.delete("section");
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams],
+  );
+
+  const closeActor = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("actor");
+    params.delete("section");
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, router, searchParams]);
+
+  const openActorSection = useCallback(
+    (s: "basic" | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (s) params.set("section", s);
+      else params.delete("section");
+      const qs = params.toString();
+      router.push(qs ? `${pathname}?${qs}` : pathname);
+    },
+    [pathname, router, searchParams],
+  );
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-4 sm:px-5 flex items-center gap-3 z-30">
+      {/* Mobile compact title strip — WeCom shows its own native bar, so we keep
+          just a thin row for the sidebar trigger + contextual page title */}
+      <header className="md:hidden bg-white border-b border-gray-200 flex-shrink-0 h-10 px-2 flex items-center gap-2 z-30">
         <button
           type="button"
           aria-label="Open navigation"
           onClick={() => setSidebarOpen(true)}
-          className="md:hidden -ml-1 p-2 rounded-md text-gray-600 hover:bg-gray-100"
+          className="-ml-1 p-2 rounded-md text-gray-600 hover:bg-gray-100"
         >
           <Menu className="w-5 h-5" />
         </button>
+        <span className="text-sm font-semibold text-gray-700 truncate">
+          {showUnassigned
+            ? "Unassigned"
+            : selectedRole
+              ? `${selectedShow?.name ?? ""} / ${selectedRole.name}`
+              : "Casting Book"}
+        </span>
+      </header>
+      {/* Desktop header */}
+      <header className="hidden md:flex bg-white border-b border-gray-200 flex-shrink-0 h-14 px-4 sm:px-5 items-center gap-3 z-30">
         <div className="flex items-center gap-2.5">
           <BookOpen className="w-5 h-5 text-brand-500" />
           <span className="font-bold text-gray-900 text-base">Casting Book</span>
@@ -2515,9 +2998,8 @@ export default function CastingBookPage() {
           selectedShowId={selectedShowId}
           selectedRoleId={selectedRoleId}
           showUnassigned={showUnassigned}
-          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedRoleId(null); closeSidebarOnMobile(); }}
-          onSelectShow={(showId) => { selectShow(showId); closeSidebarOnMobile(); }}
-          onSelectRole={(showId, roleId) => { setSelectedShowId(showId); selectRole(roleId); closeSidebarOnMobile(); }}
+          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedShowId(null); setSelectedRoleId(null); closeSidebarOnMobile(); }}
+          onSelectRole={(showId, roleId) => { selectRole(showId, roleId); closeSidebarOnMobile(); }}
           isMobileOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
@@ -2531,11 +3013,22 @@ export default function CastingBookPage() {
                 defaultRole: selectedRole?.name,
                 defaultRoleType: castTab,
               })}
-              showUnassigned={showUnassigned} />
+              showUnassigned={showUnassigned}
+              onOpenActor={openActor} />
           )}
-          {viewMode === "roster" && <RosterView onImport={() => setShowImportModal(true)} selectedShow={selectedShow} selectedRole={selectedRole} showUnassigned={showUnassigned} />}
+          {viewMode === "roster" && <RosterView onImport={() => setShowImportModal(true)} selectedShow={selectedShow} selectedRole={selectedRole} showUnassigned={showUnassigned} onOpenActor={openActor} />}
         </div>
       </div>
+
+      {drawerActor && (
+        <ActorDetailDrawer
+          actor={drawerActor}
+          roleLabel={`${drawerActor.homeShow ?? "—"} / ${drawerActor.homeRole ?? "—"}`}
+          section={sectionParam}
+          onClose={closeActor}
+          onOpenSection={openActorSection}
+        />
+      )}
 
       {assignTarget && (
         <BatchAssignDialog
