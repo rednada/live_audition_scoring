@@ -7,7 +7,7 @@ import {
   ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
   RotateCcw, Eye, Users, Film, Plus, Paperclip,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
-  Filter, Check,
+  Filter, Check, Menu,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -619,7 +619,7 @@ function FilterPanel({ filters, onChange, onClose }: {
   const lblCls = "block text-xs text-gray-500 mb-1";
 
   const renderShowRolePair = (showKey: StringFilterKey, roleKey: StringFilterKey, showLabel: string) => (
-    <div className="col-span-2">
+    <div className="sm:col-span-2">
       <label className={lblCls}>{showLabel}</label>
       <div className="grid grid-cols-2 gap-1.5">
         <select value={filters[showKey]} onChange={(e) => onChange({ ...filters, [showKey]: e.target.value, [roleKey]: "" })} className={fieldCls}>
@@ -638,7 +638,7 @@ function FilterPanel({ filters, onChange, onClose }: {
     const d = filters[key];
     const cols = d.op === "between" ? "grid-cols-[110px_1fr_1fr]" : "grid-cols-[110px_1fr]";
     return (
-      <div className="col-span-2">
+      <div className="sm:col-span-2">
         <label className={lblCls}>{label}</label>
         <div className={`grid gap-1.5 ${cols}`}>
           <select value={d.op}
@@ -662,8 +662,8 @@ function FilterPanel({ filters, onChange, onClose }: {
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm mb-4">
-      <div className="grid grid-cols-6 gap-3">
+    <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-sm mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div>
           <label className={lblCls}>Performer</label>
           <input value={filters.performer} onChange={(e) => set("performer", e.target.value)} placeholder="请输入SSO/姓名" className={fieldCls} />
@@ -713,7 +713,7 @@ function FilterPanel({ filters, onChange, onClose }: {
         {renderShowRolePair("offerShow", "offerRole", "Offer Show & Role")}
         {renderShowRolePair("homeShow", "homeRole", "Current Home Show & Role")}
         {renderShowRolePair("swingShow", "swingRole", "Swing Show & Role")}
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <label className={lblCls}>Event Experience</label>
           <div className="grid grid-cols-2 gap-1.5">
             <select value={filters.eventName}
@@ -856,8 +856,8 @@ function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed,
         </div>
       </div>
       {!collapsed && (
-        <div className="px-5 pb-4">
-          <div className="grid grid-cols-3 gap-3 divide-x-0">
+        <div className="px-4 sm:px-5 pb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 divide-x-0">
             {(["left", "mid", "right"] as const).map((c) => (
               <div key={c} className="divide-y divide-gray-50">
                 {cols[c].map((g) => <div key={g.key as string}>{renderCell(g)}</div>)}
@@ -927,15 +927,15 @@ function MeasurementImportModal({ onClose, onApply, ssoId }: {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">Upload Measurement</h2>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
           <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
             <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-blue-700">Download template first</p>
               <p className="text-xs text-blue-500 mt-0.5">Includes all measurement fields plus SSO.</p>
             </div>
@@ -949,7 +949,7 @@ function MeasurementImportModal({ onClose, onApply, ssoId }: {
           <div onClick={() => fileRef.current?.click()}
             className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
             <Upload className="w-6 h-6" />
-            <span className="text-sm font-medium">{fileName || "Click to select .xlsx / .xls / .csv"}</span>
+            <span className="text-sm font-medium px-2 text-center">{fileName || "Click to select .xlsx / .xls / .csv"}</span>
           </div>
 
           {preview.length > 0 && (
@@ -968,7 +968,7 @@ function MeasurementImportModal({ onClose, onApply, ssoId }: {
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-3 px-6 pb-5">
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={applyImport} disabled={preview.length < 2}
             className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -1186,7 +1186,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
       <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-[528px] bg-white shadow-2xl flex flex-col">
 
         {/* Photo header with headshot replacement */}
-        <div className="relative flex-shrink-0 h-48 bg-gray-100 group/headshot">
+        <div className="relative flex-shrink-0 h-40 sm:h-48 bg-gray-100 group/headshot">
           <img src={headshotUrl} alt={actor.name} className="w-full h-full object-cover object-top" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
           <button onClick={onClose}
@@ -1215,7 +1215,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
         )}
 
         {/* Basic Info — top row */}
-        <div className="flex-shrink-0 grid grid-cols-5 border-b border-gray-100">
+        <div className="flex-shrink-0 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 border-b border-gray-100">
           {[
             { label: "SSO", value: actor.ssoId, mono: true },
             { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
@@ -1223,7 +1223,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
             { label: "Weight", value: `${actor.weight} kg` },
             { label: "Contract End", value: actor.contractEndDate ?? "—" },
           ].map(({ label, value, mono }) => (
-            <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
+            <div key={label} className="px-2 py-2.5 text-center border-r border-b border-gray-100 last:border-r-0 sm:[&:nth-child(3n)]:border-r-0 md:[&:nth-child(3n)]:border-r md:[&:nth-child(5n)]:border-r-0">
               <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
               <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
             </div>
@@ -1468,7 +1468,7 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                 )}
                 {/* Column header */}
                 {showRoleRecords.length > 0 && (
-                  <div className="grid grid-cols-[1fr_110px_60px] gap-2 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                  <div className="hidden sm:grid grid-cols-[1fr_110px_60px] gap-2 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
                     <span>Show &amp; Role</span>
                     <span>Last Modified</span>
                     <span></span>
@@ -1493,8 +1493,8 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                       : "bg-amber-100 text-amber-700";
                     return (
                       <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${tone}`}>
-                        <div className="grid grid-cols-[1fr_110px_60px] gap-2 items-center">
-                          <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex flex-col gap-1 sm:grid sm:grid-cols-[1fr_110px_60px] sm:gap-2 sm:items-center">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${chip}`}>
                               {rec.roleType === "home" ? "Home" : "Swing"}
                             </span>
@@ -1502,14 +1502,16 @@ function ActorDetailDrawer({ actor, roleLabel, onClose }: {
                             <span className="text-xs text-gray-300">/</span>
                             <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
                           </div>
-                          <span className="text-xs text-gray-400">{rec.date}</span>
-                          {inactive ? (
-                            <span className="text-xs text-gray-300">Removed</span>
-                          ) : (
-                            <button onClick={() => askConfirm("Remove show & role", `Remove ${rec.show} / ${rec.role}?`,
-                              () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
-                              className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Remove</button>
-                          )}
+                          <div className="flex items-center justify-between sm:contents">
+                            <span className="text-xs text-gray-400">{rec.date}</span>
+                            {inactive ? (
+                              <span className="text-xs text-gray-300">Removed</span>
+                            ) : (
+                              <button onClick={() => askConfirm("Remove show & role", `Remove ${rec.show} / ${rec.role}?`,
+                                () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Remove</button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -1711,15 +1713,15 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">Import Performers</h2>
             <p className="text-xs text-gray-400 mt-0.5">Upload an Excel file to bulk import performers</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
           <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
             <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
             <div className="flex-1">
@@ -1769,7 +1771,7 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
             </p>
           )}
         </div>
-        <div className="flex justify-end gap-3 px-6 pb-5">
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={onClose} disabled={!fileName || hasInvalid}
             className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
@@ -1805,14 +1807,14 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-900 text-sm sm:text-base">
             Batch Assign for {target.ids.length} Performer{target.ids.length === 1 ? "" : "s"}
           </h2>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
             <div className="flex items-center gap-5">
@@ -1863,7 +1865,7 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
             </div>
           </div>
         </div>
-        <div className="flex justify-end gap-3 px-6 pb-5">
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
             className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Save</button>
@@ -1966,10 +1968,10 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
     const pageItems = unassigned.slice((safeP - 1) * pageSize, safeP * pageSize);
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-6 pt-5 pb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">Unassigned</h2>
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-gray-900">Unassigned</h2>
               <p className="text-xs text-gray-400 mt-0.5">{unassignedAll.length} performers without a home show/role</p>
             </div>
             <button onClick={() => setShowFilter((p) => !p)}
@@ -2030,17 +2032,17 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        <div className="px-6 pt-5 pb-4">
+        <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-base">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="text-sm sm:text-base min-w-0">
               <span className="text-gray-500">Regular Show</span>
               <span className="text-gray-300 mx-2">/</span>
               <span className="text-gray-500">{selectedShow.name}</span>
               <span className="text-gray-300 mx-2">/</span>
               <span className="text-gray-900 font-semibold">{selectedRole.name}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setShowFilter((p) => !p)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 <Filter className="w-4 h-4" />Filter
@@ -2181,8 +2183,8 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
       )}
 
       {/* Breadcrumb + action bar */}
-      <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-3">
-        <div className="text-base">
+      <div className="bg-white border-b border-gray-100 px-4 sm:px-5 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="text-sm sm:text-base min-w-0">
           {showUnassigned ? (
             <span className="text-gray-900 font-semibold">Unassigned</span>
           ) : (
@@ -2194,7 +2196,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
           )}
         </div>
         <button onClick={() => setShowFilter((p) => !p)}
-          className={`ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+          className={`sm:ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
           <Filter className="w-4 h-4" />Filter
           {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
         </button>
@@ -2205,13 +2207,55 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned }: {
       </div>
 
       {showFilter && (
-        <div className="px-5 pt-4 bg-gray-50">
+        <div className="px-4 sm:px-5 pt-4 bg-gray-50">
           <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
         </div>
       )}
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
+      {/* Mobile card list (<md) */}
+      <div className="md:hidden flex-1 overflow-y-auto bg-gray-50 px-3 py-3 space-y-2">
+        {pageRows.length === 0 && (
+          <div className="text-center py-16 text-gray-300 text-sm">No performers found</div>
+        )}
+        {pageRows.map((p) => (
+          <div key={p.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-start gap-3 active:bg-gray-50"
+            onClick={() => setDrawerActor(p)}>
+            <input
+              type="checkbox"
+              checked={selectedIds.has(p.id)}
+              onChange={(e) => { e.stopPropagation(); toggleOne(p.id); }}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1 w-4 h-4 rounded border-gray-300 accent-brand-500 flex-shrink-0"
+            />
+            <img src={p.photoUrl} alt={p.name} className="w-12 h-12 rounded-full object-cover object-top ring-1 ring-gray-100 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm truncate">{p.name}</p>
+                  <p className="text-[11px] text-gray-400 font-mono truncate">{p.ssoId}</p>
+                </div>
+                <span className="text-[11px] text-gray-500 whitespace-nowrap">{p.flag} {p.nationality}</span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                <span>Height <span className="text-gray-700 font-medium">{p.height}</span></span>
+                <span className="truncate">
+                  {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-700 font-medium">{p.homeRole}</span></> : "—"}
+                </span>
+                <span>End <span className="text-gray-700 font-medium">{p.contractEndDate ?? "—"}</span></span>
+              </div>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setDrawerActor(p); }}
+              className="flex-shrink-0 text-xs text-brand-500 hover:text-brand-700 font-medium px-2 py-1"
+            >
+              View
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table (>=md) */}
+      <div className="hidden md:block flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
@@ -2278,12 +2322,15 @@ function LeftSidebar({
   viewMode, onChangeViewMode,
   selectedShowId, selectedRoleId, showUnassigned,
   onSelectUnassigned, onSelectShow, onSelectRole,
+  isMobileOpen, onClose,
 }: {
   viewMode: ViewMode; onChangeViewMode: (m: ViewMode) => void;
   selectedShowId: string; selectedRoleId: string | null; showUnassigned: boolean;
   onSelectUnassigned: () => void;
   onSelectShow: (showId: string) => void;
   onSelectRole: (showId: string, roleId: string) => void;
+  isMobileOpen: boolean;
+  onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [expandedShowIds, setExpandedShowIds] = useState<Set<string>>(() => new Set([selectedShowId]));
@@ -2305,7 +2352,21 @@ function LeftSidebar({
   }
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+    <aside
+      className={`bg-white border-r border-gray-200 flex flex-col flex-shrink-0 fixed inset-y-0 left-0 z-40 w-72 transform transition-transform duration-200 ease-out md:static md:translate-x-0 md:w-64 md:transform-none md:transition-none ${isMobileOpen ? "translate-x-0 shadow-xl" : "-translate-x-full"}`}
+    >
+      {/* Mobile drawer header (close button) */}
+      <div className="md:hidden flex items-center justify-between px-3 h-12 border-b border-gray-100">
+        <span className="text-sm font-semibold text-gray-700">Navigation</span>
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={onClose}
+          className="p-2 -mr-2 rounded-md text-gray-500 hover:bg-gray-100"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
       {/* View Mode Segmented Switch */}
       <div className="px-3 py-3 border-b border-gray-100">
         <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
@@ -2406,6 +2467,13 @@ export default function CastingBookPage() {
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
   const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  function closeSidebarOnMobile() {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }
 
   const allShowsFlat = useMemo(() => DATA.flatMap((l) => l.shows), []);
   const selectedShow = useMemo(() => allShowsFlat.find((s) => s.id === selectedShowId) ?? null, [allShowsFlat, selectedShowId]);
@@ -2417,7 +2485,15 @@ export default function CastingBookPage() {
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-5 flex items-center z-30">
+      <header className="bg-white border-b border-gray-200 flex-shrink-0 h-14 px-4 sm:px-5 flex items-center gap-3 z-30">
+        <button
+          type="button"
+          aria-label="Open navigation"
+          onClick={() => setSidebarOpen(true)}
+          className="md:hidden -ml-1 p-2 rounded-md text-gray-600 hover:bg-gray-100"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
         <div className="flex items-center gap-2.5">
           <BookOpen className="w-5 h-5 text-brand-500" />
           <span className="font-bold text-gray-900 text-base">Casting Book</span>
@@ -2425,16 +2501,25 @@ export default function CastingBookPage() {
       </header>
 
       {/* Sidebar + Main Content (left-right layout) */}
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 flex relative">
+        {sidebarOpen && (
+          <div
+            className="md:hidden fixed inset-0 z-30 bg-black/40"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <LeftSidebar
           viewMode={viewMode}
-          onChangeViewMode={(m) => setViewMode(m)}
+          onChangeViewMode={(m) => { setViewMode(m); closeSidebarOnMobile(); }}
           selectedShowId={selectedShowId}
           selectedRoleId={selectedRoleId}
           showUnassigned={showUnassigned}
-          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedRoleId(null); }}
-          onSelectShow={(showId) => selectShow(showId)}
-          onSelectRole={(showId, roleId) => { setSelectedShowId(showId); selectRole(roleId); }}
+          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedRoleId(null); closeSidebarOnMobile(); }}
+          onSelectShow={(showId) => { selectShow(showId); closeSidebarOnMobile(); }}
+          onSelectRole={(showId, roleId) => { setSelectedShowId(showId); selectRole(roleId); closeSidebarOnMobile(); }}
+          isMobileOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {viewMode === "card" && (
