@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
@@ -38,6 +38,101 @@ interface Measurements {
 
 interface Attachment { id: string; name: string; fileType: string }
 
+type ActorStatus = "Active" | "Terminated" | "On Leave" | "Suspended" | "Transferred";
+const ACTOR_STATUSES: ActorStatus[] = ["Active", "Terminated", "On Leave", "Suspended", "Transferred"];
+const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; ring: string; dot: string }> = {
+  "Active":      { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200", dot: "bg-emerald-500" },
+  "Terminated":  { bg: "bg-red-50",     text: "text-red-700",     ring: "ring-red-200",     dot: "bg-red-500" },
+  "On Leave":    { bg: "bg-amber-50",   text: "text-amber-700",   ring: "ring-amber-200",   dot: "bg-amber-500" },
+  "Suspended":   { bg: "bg-orange-50",  text: "text-orange-700",  ring: "ring-orange-200",  dot: "bg-orange-500" },
+  "Transferred": { bg: "bg-sky-50",     text: "text-sky-700",     ring: "ring-sky-200",     dot: "bg-sky-500" },
+};
+
+// Status override state: actor objects come from module-level constants so
+// in-session edits are kept here and merged on read.
+const StatusCtx = createContext<{
+  statusOf: (a: Actor) => ActorStatus;
+  setStatusFor: (ids: number[], status: ActorStatus) => void;
+}>({ statusOf: (a) => a.status ?? "Active", setStatusFor: () => {} });
+const useActorStatus = () => useContext(StatusCtx);
+
+function StatusBadge({ status, size = "sm" }: { status: ActorStatus; size?: "xs" | "sm" }) {
+  const c = STATUS_BADGE[status];
+  const dim = size === "xs"
+    ? "text-[9px] px-1.5 py-[1px] gap-1"
+    : "text-[10px] px-1.5 py-0.5 gap-1";
+  return (
+    <span className={`inline-flex items-center rounded-full font-medium leading-tight ${c.bg} ${c.text} ${dim}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {status}
+    </span>
+  );
+}
+
+// Status mark menu — popover on desktop, bottom sheet on mobile.
+function MarkStatusMenu({ anchor, current, count, onClose, onPick }: {
+  anchor?: { top: number; left: number };
+  current?: ActorStatus;
+  count?: number;
+  onClose: () => void;
+  onPick: (s: ActorStatus) => void;
+}) {
+  return (
+    <>
+      {/* Desktop popover */}
+      <div className="hidden md:block">
+        <div className="fixed inset-0 z-40" onClick={onClose} />
+        <div
+          className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 w-44"
+          style={{ top: anchor?.top ?? 80, left: anchor?.left ?? 80 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {count !== undefined && (
+            <div className="px-3 py-1.5 text-[11px] text-gray-400 border-b border-gray-100">
+              Mark {count} performer{count === 1 ? "" : "s"}
+            </div>
+          )}
+          {ACTOR_STATUSES.map((s) => {
+            const active = current === s;
+            const c = STATUS_BADGE[s];
+            return (
+              <button key={s} onClick={() => { onPick(s); onClose(); }}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs hover:bg-gray-50 ${active ? "bg-brand-50/40" : ""}`}>
+                <span className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                  <span className="text-gray-700">{s}</span>
+                </span>
+                {active && <Check className="w-3.5 h-3.5 text-brand-500" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {/* Mobile bottom sheet */}
+      <div className="md:hidden">
+        <BottomSheet open onClose={onClose} title={count !== undefined ? `Mark ${count} performer${count === 1 ? "" : "s"}` : "Mark Status"}>
+          <div className="py-1">
+            {ACTOR_STATUSES.map((s) => {
+              const active = current === s;
+              const c = STATUS_BADGE[s];
+              return (
+                <button key={s} onClick={() => { onPick(s); onClose(); }}
+                  className={`w-full flex items-center justify-between gap-3 px-1 py-3 border-b border-gray-50 ${active ? "bg-brand-50/40" : ""}`}>
+                  <span className="flex items-center gap-2.5">
+                    <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
+                    <span className="text-sm text-gray-800">{s}</span>
+                  </span>
+                  {active && <Check className="w-4 h-4 text-brand-500" />}
+                </button>
+              );
+            })}
+          </div>
+        </BottomSheet>
+      </div>
+    </>
+  );
+}
+
 interface Actor {
   id: number; ssoId: string; name: string; nationality: string; flag: string;
   gender?: "men" | "women";
@@ -47,6 +142,7 @@ interface Actor {
   homeShow?: string; homeRole?: string;
   offerShow?: string; offerRole?: string;
   contractStartDate?: string; contractEndDate?: string;
+  status?: ActorStatus;
   skillEntries?: SkillEntry[];
   mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
   measurements?: Measurements; attachments?: Attachment[];
@@ -171,6 +267,17 @@ function genAttachments(seed: number): Attachment[] {
   }));
 }
 
+// Status distribution for mock data: ~80% Active, others sprinkled in so users
+// can see filtering / batch mark in action without staging data manually.
+function genActorStatus(seed: number): ActorStatus {
+  const h = dHash(seed * 71) % 100;
+  if (h < 80) return "Active";
+  if (h < 88) return "On Leave";
+  if (h < 93) return "Suspended";
+  if (h < 97) return "Terminated";
+  return "Transferred";
+}
+
 function genSkillEntries(seed: number): SkillEntry[] {
   const count = 2 + (dHash(seed * 3) % 4);
   const entries: SkillEntry[] = [];
@@ -200,6 +307,7 @@ function genActors(seed: number, count: number): Actor[] {
       gender: pool.gender,
       height, weight,
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
+      status: genActorStatus(seed * 100 + i),
       skillEntries: genSkillEntries(seed * 100 + i),
       measurements: genMeasurements(seed * 100 + i, height, weight),
       attachments: genAttachments(seed * 100 + i),
@@ -361,6 +469,7 @@ function genPerformer(seed: number): Actor {
     homeShow: pair.show, homeRole: pair.role,
     offerShow: offerPair.show, offerRole: offerPair.role,
     contractStartDate, contractEndDate,
+    status: genActorStatus(9000 + seed),
     skillEntries: genSkillEntries(seed),
     mediaFiles,
     showRoleRecords: genShowRoleRecords(seed, pair.show, pair.role, contractEndDate),
@@ -406,6 +515,7 @@ function enrichActor(a: Actor, showName: string, roleName: string): Actor {
     contractEndDate: contractEnd,
     employeeClass: a.employeeClass ?? EMPLOYEE_CLASSES[dHash(seed * 41) % EMPLOYEE_CLASSES.length],
     idPassportEndDate: a.idPassportEndDate ?? CONTRACT_DATES[dHash(seed * 43) % CONTRACT_DATES.length],
+    status: a.status ?? genActorStatus(seed),
     mediaFiles,
     showRoleRecords: a.showRoleRecords ?? genShowRoleRecords(seed, showName, roleName, contractEnd),
     eventRecords: a.eventRecords ?? genEventRecords(seed),
@@ -592,9 +702,11 @@ interface Filters {
   contractEnd: DateRange;
   idPassportEnd: DateRange;
   nationality: string;
+  status: ActorStatus | "All";
 }
 
 const EMPTY_DATE: DateRange = { op: "lt", v1: "", v2: "" };
+const DEFAULT_FILTER_STATUS: ActorStatus = "Active";
 const EMPTY_FILTERS: Filters = {
   performer: "", employeeClass: "",
   heightMin: "", heightMax: "", weightMin: "", weightMax: "",
@@ -603,6 +715,7 @@ const EMPTY_FILTERS: Filters = {
   eventName: "", eventRoleName: "",
   contractEnd: { ...EMPTY_DATE }, idPassportEnd: { ...EMPTY_DATE },
   nationality: "",
+  status: DEFAULT_FILTER_STATUS,
 };
 
 function dateRangeActive(d: DateRange): boolean {
@@ -620,11 +733,24 @@ function dateRangeMatches(d: DateRange, value: string | undefined): boolean {
 function hasAnyFilter(f: Filters): boolean {
   return Object.entries(f).some(([k, v]) => {
     if (k === "contractEnd" || k === "idPassportEnd") return dateRangeActive(v as DateRange);
+    if (k === "status") return v !== DEFAULT_FILTER_STATUS;
     return v !== "";
   });
 }
 
-function actorMatchesFilters(a: Actor, f: Filters): boolean {
+function countActiveFilters(f: Filters): number {
+  let n = 0;
+  for (const [k, v] of Object.entries(f)) {
+    if (k === "contractEnd" || k === "idPassportEnd") {
+      if (dateRangeActive(v as DateRange)) n++;
+    } else if (k === "status") {
+      if (v !== DEFAULT_FILTER_STATUS) n++;
+    } else if (v !== "") n++;
+  }
+  return n;
+}
+
+function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => ActorStatus): boolean {
   if (f.performer) {
     const lq = f.performer.toLowerCase();
     if (!a.name.toLowerCase().includes(lq) && !a.ssoId.includes(lq)) return false;
@@ -654,6 +780,10 @@ function actorMatchesFilters(a: Actor, f: Filters): boolean {
   if (dateRangeActive(f.contractEnd) && !dateRangeMatches(f.contractEnd, a.contractEndDate)) return false;
   if (dateRangeActive(f.idPassportEnd) && !dateRangeMatches(f.idPassportEnd, a.idPassportEndDate)) return false;
   if (f.nationality && a.nationality !== f.nationality) return false;
+  if (f.status !== "All") {
+    const cur = statusOf ? statusOf(a) : (a.status ?? "Active");
+    if (cur !== f.status) return false;
+  }
   return true;
 }
 
@@ -798,6 +928,13 @@ function FilterPanel({ filters, onChange, onClose }: {
           <select value={filters.nationality} onChange={(e) => set("nationality", e.target.value)} className={fieldCls}>
             <option value="">请选择</option>
             {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={lblCls}>Status</label>
+          <select value={filters.status} onChange={(e) => onChange({ ...filters, status: e.target.value as Filters["status"] })} className={fieldCls}>
+            <option value="All">All</option>
+            {ACTOR_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
       </div>
@@ -1092,6 +1229,7 @@ function MeasurementImportModal({ onClose, onApply, ssoId }: {
 function BasicInfoMobile({ actor, headshotUrl, onBack }: {
   actor: Actor; headshotUrl: string; onBack: () => void;
 }) {
+  const { statusOf } = useActorStatus();
   const fields: { label: string; value: string }[] = [
     { label: "SSO", value: actor.ssoId },
     { label: "Name", value: actor.name },
@@ -1122,10 +1260,11 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
         <div className="flex items-center gap-3 px-4 py-4 bg-gray-50 border-b border-gray-100">
           <img src={headshotUrl} alt={actor.name}
             className="w-14 h-14 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-base font-bold text-gray-900 truncate">{actor.name}</p>
             <p className="text-xs text-gray-400 font-mono">{actor.ssoId}</p>
           </div>
+          <StatusBadge status={statusOf(actor)} />
         </div>
         <ul className="divide-y divide-gray-100">
           {fields.map(({ label, value }) => (
@@ -1153,10 +1292,13 @@ function ActorDetailDrawer({
 }) {
   const headshotInputRef = useRef<HTMLInputElement>(null);
   const [headshotUrl, setHeadshotUrl] = useState(actor.photoUrl);
+  const { statusOf, setStatusFor } = useActorStatus();
+  const currentStatus = statusOf(actor);
+  const [statusMenuAnchor, setStatusMenuAnchor] = useState<{ top: number; left: number } | null>(null);
 
   const [collapsed, setCollapsed] = useState({
-    skills: false, portfolio: true, showRole: false,
-    measurements: true, event: true, attachments: true,
+    skills: false, portfolio: false, showRole: false,
+    measurements: false, event: false, attachments: false,
   });
   const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
   const [showMore, setShowMore] = useState(false);
@@ -1354,6 +1496,11 @@ function ActorDetailDrawer({
           if (f) setHeadshotUrl(URL.createObjectURL(f));
           e.target.value = "";
         }} />
+      {statusMenuAnchor && (
+        <MarkStatusMenu anchor={statusMenuAnchor} current={currentStatus}
+          onClose={() => setStatusMenuAnchor(null)}
+          onPick={(s) => setStatusFor([actor.id], s)} />
+      )}
       {section === "basic" && (
         <BasicInfoMobile actor={actor} headshotUrl={headshotUrl} onBack={() => onOpenSection(null)} />
       )}
@@ -1398,6 +1545,11 @@ function ActorDetailDrawer({
               <p className="text-xs text-gray-500">
                 {actor.height} cm / {actor.weight} kg
               </p>
+              <button type="button" aria-label="Change status"
+                onClick={() => setStatusMenuAnchor({ top: 0, left: 0 })}
+                className="inline-flex self-start mt-0.5">
+                <StatusBadge status={currentStatus} />
+              </button>
               <div className="flex flex-wrap items-center gap-1 mt-0.5">
                 {skillEntries.map((e) => (
                   <span
@@ -1448,14 +1600,24 @@ function ActorDetailDrawer({
           </button>
           <div className="absolute bottom-4 left-5 right-5">
             <p className="text-xs text-gray-300 mb-0.5">{roleLabel}</p>
-            <button
-              type="button"
-              onClick={() => onOpenSection("basic")}
-              className="md:pointer-events-none md:cursor-default flex items-center gap-1 w-full text-left"
-            >
-              <span className="text-xl font-bold text-white leading-tight truncate flex-1 min-w-0">{actor.name}</span>
-              <ChevronRight className="md:hidden w-5 h-5 text-white/80 flex-shrink-0" />
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenSection("basic")}
+                className="md:pointer-events-none md:cursor-default flex items-center gap-1 flex-1 min-w-0 text-left"
+              >
+                <span className="text-xl font-bold text-white leading-tight truncate flex-1 min-w-0">{actor.name}</span>
+                <ChevronRight className="md:hidden w-5 h-5 text-white/80 flex-shrink-0" />
+              </button>
+              <button type="button" aria-label="Change status"
+                onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  setStatusMenuAnchor({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
+                }}
+                className="hidden md:inline-flex flex-shrink-0">
+                <StatusBadge status={currentStatus} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2113,6 +2275,7 @@ function ActorDetailDrawer({
 const IMPORT_COLUMNS: { key: string; required: boolean }[] = [
   { key: "SSO", required: true },
   { key: "Full Name", required: true },
+  { key: "Status", required: true },
   { key: "Nationality", required: false },
   { key: "Gender", required: false },
   { key: "Height (cm)", required: false },
@@ -2127,6 +2290,9 @@ const IMPORT_COLUMNS: { key: string; required: boolean }[] = [
   { key: "ID/Passport Valid End Date", required: false },
 ];
 
+const IMPORT_STATUS_COL = IMPORT_COLUMNS.findIndex((c) => c.key === "Status");
+const STATUS_TOKEN_SET = new Set<string>(ACTOR_STATUSES.map((s) => s.toLowerCase()));
+
 function RosterImportModal({ onClose }: { onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
@@ -2135,11 +2301,15 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
   function downloadTemplate() {
     const header = IMPORT_COLUMNS.map((c) => c.required ? `${c.key} *` : c.key);
     const sample = [
-      "20017233", "Arthur William Bennett", "UK", "Male", "178", "72",
+      "20017233", "Arthur William Bennett", "Active", "UK", "Male", "178", "72",
       "UOP", "Dragon Dance", "UOP", "Dragon Dance",
       "2024-01-15", "2025-12-31", "Foreign Foreign", "2027-06-30",
     ];
-    const ws = XLSX.utils.aoa_to_sheet([header, sample]);
+    // Second row with a note listing allowed Status tokens so importers can copy.
+    const statusNote = [
+      "", "", `Allowed: ${ACTOR_STATUSES.join(" / ")}`,
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([header, sample, statusNote]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Performers");
     XLSX.writeFile(wb, "performer_import_template.xlsx");
@@ -2162,12 +2332,19 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
   }
 
   const dataRows = preview.slice(1);
-  // SSO at col 0, Full Name at col 1; flag rows with either missing
+  // SSO at col 0, Full Name at col 1, Status at IMPORT_STATUS_COL; flag rows with either missing or with invalid Status
   const invalidRowIdx = new Set<number>();
+  const invalidStatusIdx = new Set<number>();
   dataRows.forEach((row, i) => {
     const sso = String(row[0] ?? "").trim();
     const name = String(row[1] ?? "").trim();
-    if (!sso || !name) invalidRowIdx.add(i + 1); // +1 because preview[0] is header
+    const status = String(row[IMPORT_STATUS_COL] ?? "").trim();
+    const rowIdx = i + 1; // +1 because preview[0] is header
+    if (!sso || !name) invalidRowIdx.add(rowIdx);
+    if (!status || !STATUS_TOKEN_SET.has(status.toLowerCase())) {
+      invalidStatusIdx.add(rowIdx);
+      invalidRowIdx.add(rowIdx);
+    }
   });
   const hasInvalid = invalidRowIdx.size > 0;
 
@@ -2187,7 +2364,8 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
             <div className="flex-1">
               <p className="text-xs font-medium text-blue-700">Download template first</p>
               <p className="text-xs text-blue-500 mt-0.5">
-                Required: <span className="text-red-500 font-semibold">SSO</span>, <span className="text-red-500 font-semibold">Full Name</span>.
+                Required: <span className="text-red-500 font-semibold">SSO</span>, <span className="text-red-500 font-semibold">Full Name</span>, <span className="text-red-500 font-semibold">Status</span>.
+                Status must be one of: {ACTOR_STATUSES.join(" / ")}.
                 Rows without Home Show / Home Role go to Unassigned.
               </p>
             </div>
@@ -2227,7 +2405,8 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
 
           {hasInvalid && (
             <p className="text-xs text-red-500">
-              {invalidRowIdx.size} row{invalidRowIdx.size === 1 ? "" : "s"} missing required SSO or Full Name (highlighted above). Fix before importing.
+              {invalidRowIdx.size} row{invalidRowIdx.size === 1 ? "" : "s"} highlighted above need fixes:
+              {" "}missing/invalid SSO, Full Name{invalidStatusIdx.size > 0 ? `, or Status (${invalidStatusIdx.size} row${invalidStatusIdx.size === 1 ? "" : "s"})` : ""}. Fix before importing.
             </p>
           )}
         </div>
@@ -2359,10 +2538,13 @@ function BatchAssignDialog({ target, onClose, onSubmit }: {
 
 // ── Performer Card ─────────────────────────────────────────────────────────
 
-function PerformerCard({ actor, index, type, selected, onSelect, onOpen }: {
+function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkStatus }: {
   actor: Actor; index: number; type: "home" | "swing";
   selected?: boolean; onSelect?: () => void; onOpen: (id: number) => void;
+  onMarkStatus?: (id: number, anchor: { top: number; left: number }) => void;
 }) {
+  const { statusOf } = useActorStatus();
+  const status = statusOf(actor);
   return (
     <>
       <div className={`group relative bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 ${selected ? "border-brand-400 ring-2 ring-brand-200" : "border-gray-100"}`}>
@@ -2384,6 +2566,18 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen }: {
               <Eye className="w-3.5 h-3.5 text-gray-700" />
             </div>
           </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              onMarkStatus?.(actor.id, { top: r.bottom + 6, left: Math.max(8, r.left - 100) });
+            }}
+            aria-label="Change status"
+            className="absolute bottom-1.5 left-1.5 z-10"
+          >
+            <StatusBadge status={status} />
+          </button>
         </div>
         <div className="px-2 py-2">
           <p className="text-xs font-bold text-gray-900 leading-snug truncate">{actor.name}</p>
@@ -2425,7 +2619,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFilter, setShowFilter] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
+  const { statusOf, setStatusFor } = useActorStatus();
+  const activeFilterCount = countActiveFilters(filters);
+  const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
 
   function updateFilters(next: Filters) {
     setFilters(next);
@@ -2440,9 +2636,22 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
     });
   }
 
+  function openCardStatusMenu(id: number, anchor: { top: number; left: number }) {
+    setMarkMenu({ ids: [id], anchor, single: true });
+  }
+  function openBatchStatusMenu(anchor?: { top: number; left: number }) {
+    if (selectedIds.size === 0) return;
+    setMarkMenu({ ids: Array.from(selectedIds), anchor });
+  }
+  function applyStatusPick(s: ActorStatus) {
+    if (!markMenu) return;
+    setStatusFor(markMenu.ids, s);
+    if (!markMenu.single) setSelectedIds(new Set());
+  }
+
   if (showUnassigned) {
     const unassignedAll = PERFORMERS.filter((p) => !p.homeShow);
-    const unassigned = unassignedAll.filter((p) => actorMatchesFilters(p, filters));
+    const unassigned = unassignedAll.filter((p) => actorMatchesFilters(p, filters, statusOf));
     const totalPages = Math.max(1, Math.ceil(unassigned.length / pageSize));
     const safeP = Math.min(page, totalPages);
     const pageItems = unassigned.slice((safeP - 1) * pageSize, safeP * pageSize);
@@ -2484,10 +2693,19 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           {selectedIds.size > 0 && (
             <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
               <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-              <button onClick={() => { onCast(Array.from(selectedIds)); }}
-                className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
-                Assign Role
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
+                }}
+                  className="px-3.5 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors">
+                  Mark Status
+                </button>
+                <button onClick={() => { onCast(Array.from(selectedIds)); }}
+                  className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
+                  Assign Role
+                </button>
+              </div>
             </div>
           )}
           {unassigned.length === 0 ? (
@@ -2496,7 +2714,8 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((a, i) => (
                 <PerformerCard key={a.id} actor={a} index={i} type="home"
-                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor} />
+                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor}
+                  onMarkStatus={openCardStatusMenu} />
               ))}
             </div>
           )}
@@ -2505,6 +2724,13 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
             totalItems={unassigned.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
         )}
+        {markMenu && (() => {
+          const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
+          return <MarkStatusMenu anchor={markMenu.anchor}
+            current={cur}
+            count={markMenu.single ? undefined : markMenu.ids.length}
+            onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
+        })()}
       </div>
     );
   }
@@ -2520,7 +2746,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
 
   const allActors = castTab === "home" ? selectedRole.homeActors : selectedRole.swingActors;
 
-  const filteredActors = allActors.filter((a) => actorMatchesFilters(a, filters));
+  const filteredActors = allActors.filter((a) => actorMatchesFilters(a, filters, statusOf));
 
   const allItems = filteredActors.map((a, i) => ({ type: "actor" as const, actor: a, index: i }));
 
@@ -2582,7 +2808,16 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           {selectedIds.size > 0 && (
             <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
               <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
+              <div className="flex items-center gap-3">
+                <button onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
+                }}
+                  className="px-3 py-1 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-medium hover:bg-gray-50 transition-colors">
+                  Mark Status
+                </button>
+                <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
+              </div>
             </div>
           )}
 
@@ -2610,7 +2845,8 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
                 <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
                   selected={selectedIds.has(item.actor.id)}
                   onSelect={() => toggleSelect(item.actor.id)}
-                  onOpen={onOpenActor} />
+                  onOpen={onOpenActor}
+                  onMarkStatus={openCardStatusMenu} />
               )}
             </div>
           )}
@@ -2620,6 +2856,13 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
         <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
           totalItems={totalItems} onPageChange={setPage} onPageSizeChange={setPageSize} />
       )}
+      {markMenu && (() => {
+        const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
+        return <MarkStatusMenu anchor={markMenu.anchor}
+          current={cur}
+          count={markMenu.single ? undefined : markMenu.ids.length}
+          onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
+      })()}
     </div>
   );
 }
@@ -2650,8 +2893,23 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
   const [showFilter, setShowFilter] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const { statusOf, setStatusFor } = useActorStatus();
+  const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
 
-  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
+  const activeFilterCount = countActiveFilters(filters);
+
+  function openRowStatusMenu(id: number, anchor: { top: number; left: number }) {
+    setMarkMenu({ ids: [id], anchor, single: true });
+  }
+  function openBatchStatusMenu(anchor?: { top: number; left: number }) {
+    if (selectedIds.size === 0) return;
+    setMarkMenu({ ids: Array.from(selectedIds), anchor });
+  }
+  function applyStatusPick(s: ActorStatus) {
+    if (!markMenu) return;
+    setStatusFor(markMenu.ids, s);
+    if (!markMenu.single) setSelectedIds(new Set());
+  }
 
   function handleSort(k: SortKey) {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -2679,7 +2937,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
     return [];
   }, [showUnassigned, selectedShow, selectedRole]);
 
-  const filtered = useMemo(() => rosterPool.filter((p) => actorMatchesFilters(p, filters)), [rosterPool, filters]);
+  const filtered = useMemo(() => rosterPool.filter((p) => actorMatchesFilters(p, filters, statusOf)), [rosterPool, filters, statusOf]);
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -2733,6 +2991,19 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
           {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
         </button>
         <span className="text-xs text-gray-400">{sorted.length} performers</span>
+        {selectedIds.size > 0 && (
+          <>
+            <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
+            <button onClick={(e) => {
+              const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
+            }}
+              className="h-9 px-3 border border-gray-200 text-gray-700 bg-white rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+              Mark Status
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
+          </>
+        )}
         <button onClick={onImport} className="ml-auto h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
           <Upload className="w-3.5 h-3.5" />Upload
         </button>
@@ -2793,6 +3064,12 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
                 </span>
                 <span>End <span className="text-gray-700 font-medium">{p.contractEndDate ?? "—"}</span></span>
               </div>
+              <div className="mt-1.5">
+                <button onClick={(e) => { e.stopPropagation(); openRowStatusMenu(p.id, { top: 0, left: 0 }); }}
+                  className="inline-flex">
+                  <StatusBadge status={statusOf(p)} />
+                </button>
+              </div>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onOpenActor(p.id); }}
@@ -2823,12 +3100,13 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
                 Contract end date <SortBtn col="contractEndDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
+              <th className="text-left px-4 py-3 font-semibold">Status</th>
               <th className="text-left px-4 py-3 font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-50">
             {pageRows.length === 0 && (
-              <tr><td colSpan={8} className="text-center py-16 text-gray-300 text-sm">
+              <tr><td colSpan={9} className="text-center py-16 text-gray-300 text-sm">
                 {!showUnassigned && !selectedRole ? "Select a role to view performers" : "No performers found"}
               </td></tr>
             )}
@@ -2854,6 +3132,14 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
                 </td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
+                  <button onClick={(e) => {
+                    const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                    openRowStatusMenu(p.id, { top: r.bottom + 6, left: Math.max(8, r.left) });
+                  }} className="inline-flex">
+                    <StatusBadge status={statusOf(p)} />
+                  </button>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
                   <button onClick={() => onOpenActor(p.id)} className="text-xs text-brand-500 hover:text-brand-700 font-medium transition-colors">View</button>
                 </td>
               </tr>
@@ -2864,6 +3150,13 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
 
       <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[10, 20, 50]}
         totalItems={sorted.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
+      {markMenu && (() => {
+        const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
+        return <MarkStatusMenu anchor={markMenu.anchor}
+          current={cur}
+          count={markMenu.single ? undefined : markMenu.ids.length}
+          onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
+      })()}
     </div>
   );
 }
@@ -3027,6 +3320,20 @@ export default function CastingBookPage() {
   const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
+
+  const statusOf = useCallback(
+    (a: Actor) => statusOverrides[a.id] ?? a.status ?? "Active",
+    [statusOverrides],
+  );
+  const setStatusFor = useCallback((ids: number[], status: ActorStatus) => {
+    setStatusOverrides((prev) => {
+      const next = { ...prev };
+      ids.forEach((id) => { next[id] = status; });
+      return next;
+    });
+  }, []);
+  const statusCtxValue = useMemo(() => ({ statusOf, setStatusFor }), [statusOf, setStatusFor]);
 
   function closeSidebarOnMobile() {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
@@ -3093,6 +3400,7 @@ export default function CastingBookPage() {
   );
 
   return (
+    <StatusCtx.Provider value={statusCtxValue}>
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
       {/* WeCom embeds the app under its own native title bar, so we render only a
           thin action row here (no duplicate title) — just the nav trigger. */}
@@ -3177,5 +3485,6 @@ export default function CastingBookPage() {
       )}
       {showImportModal && <RosterImportModal onClose={() => setShowImportModal(false)} />}
     </div>
+    </StatusCtx.Provider>
   );
 }
