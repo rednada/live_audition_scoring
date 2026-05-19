@@ -28,7 +28,16 @@
       "Bash(git push *)",
       "Bash(npx eslint *)",
       "Read(//Users/bytedance/Downloads/**)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(npx next *)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(cp \"/Users/bytedance/Downloads/casting book 0518.docx\" casting_0518.docx)",
+      "Bash(unzip -o casting_0518.docx -d casting_0518_extracted)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/casting/book)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/casting/book)",
+      "Bash(curl -sS -o /tmp/cb.html -w \"%{http_code}\\\\n\" 'http://localhost:3000/casting/book')"
     ]
   }
 }
