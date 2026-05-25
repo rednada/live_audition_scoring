@@ -925,7 +925,7 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
           <li className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-xs text-gray-400 flex-shrink-0">Gender</span>
             {editing ? (
-              <select value={draft.gender} onChange={(e) => setDraft((d) => ({ ...d, gender: e.target.value }))}
+              <select value={draft.gender} onChange={(e) => setDraft((d) => ({ ...d, gender: e.target.value as "men" | "women" }))}
                 className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-brand-200">
                 <option value="men">Male</option>
                 <option value="women">Female</option>
