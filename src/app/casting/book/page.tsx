@@ -6,7 +6,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
-  RotateCcw, Eye, Users, Film, Plus, Paperclip,
+  RotateCcw, Eye, Users, Film, Plus,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
   Filter, Check, Menu, ArrowLeft,
 } from "lucide-react";
@@ -24,29 +24,15 @@ interface ShowRoleRecord {
 }
 interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
 
-// Measurement: each numeric field stores TM (Talent Manager) and Costuming dual values
-type MeasNum = { tm: number | ""; costuming: number | "" };
-type MeasStr = { tm: string; costuming: string };
-interface Measurements {
-  height: MeasNum; weight: MeasNum; braSize: MeasStr;
-  neck: MeasNum; sneakerSize: MeasNum; headCircumference: MeasNum;
-  acrossShoulderBack: MeasNum; acrossFront: MeasNum; acrossBack: MeasNum;
-  chest: MeasNum; waist: MeasNum; hips: MeasNum;
-  bicep: MeasNum; wrist: MeasNum;
-  updateInfo: { date: string; editor: string; ssoId: string };
-}
-
-interface Attachment { id: string; name: string; fileType: string }
-
-type ActorStatus = "Active" | "Terminated" | "On Leave" | "Suspended" | "Transferred";
-const ACTOR_STATUSES: ActorStatus[] = ["Active", "Terminated", "On Leave", "Suspended", "Transferred"];
+type ActorStatus = "Active" | "Inactive";
+const ACTOR_STATUSES: ActorStatus[] = ["Active", "Inactive"];
 const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; ring: string; dot: string }> = {
-  "Active":      { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200", dot: "bg-emerald-500" },
-  "Terminated":  { bg: "bg-red-50",     text: "text-red-700",     ring: "ring-red-200",     dot: "bg-red-500" },
-  "On Leave":    { bg: "bg-amber-50",   text: "text-amber-700",   ring: "ring-amber-200",   dot: "bg-amber-500" },
-  "Suspended":   { bg: "bg-orange-50",  text: "text-orange-700",  ring: "ring-orange-200",  dot: "bg-orange-500" },
-  "Transferred": { bg: "bg-sky-50",     text: "text-sky-700",     ring: "ring-sky-200",     dot: "bg-sky-500" },
+  "Active":   { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200", dot: "bg-emerald-500" },
+  "Inactive": { bg: "bg-gray-100",   text: "text-gray-600",    ring: "ring-gray-200",    dot: "bg-gray-400" },
 };
+
+const INACTIVE_REASONS = ["No show", "转出", "已离职", "其它"] as const;
+type InactiveReason = typeof INACTIVE_REASONS[number];
 
 // Status override state: actor objects come from module-level constants so
 // in-session edits are kept here and merged on read.
@@ -69,7 +55,61 @@ function StatusBadge({ status, size = "sm" }: { status: ActorStatus; size?: "xs"
   );
 }
 
+// Offboarding flow (current → Inactive). The doc requires picking a reason
+// before the status flips, so we always route both single-row and batch
+// "mark inactive" through this dialog. To reactivate, picking Active commits
+// immediately (no reason needed).
+function OffboardingDialog({ count, onClose, onConfirm }: {
+  count: number; onClose: () => void; onConfirm: (reason: InactiveReason) => void;
+}) {
+  const [reason, setReason] = useState<InactiveReason>("已离职");
+  const title = count === 1 ? "Mark as Inactive" : `Mark ${count} performers as Inactive`;
+  const body = (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Choose a reason. The performer&apos;s status will be set to Inactive; their event experience and skills will be preserved.
+      </p>
+      <div className="space-y-2">
+        {INACTIVE_REASONS.map((r) => (
+          <label key={r} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${reason === r ? "border-brand-300 bg-brand-50/40" : "border-gray-200 hover:bg-gray-50"}`}>
+            <input type="radio" checked={reason === r} onChange={() => setReason(r)} className="accent-brand-500" />
+            <span className="text-sm text-gray-800">{r}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <div className="hidden md:flex fixed inset-0 z-[60] items-center justify-center bg-black/40 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="px-5 py-4">{body}</div>
+          <div className="flex justify-end gap-2 px-5 pb-5">
+            <button onClick={onClose} className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={() => { onConfirm(reason); onClose(); }} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium">Mark Inactive</button>
+          </div>
+        </div>
+      </div>
+      <div className="md:hidden">
+        <BottomSheet open onClose={onClose} title={title}
+          footer={
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+              <button onClick={() => { onConfirm(reason); onClose(); }} className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium">Mark Inactive</button>
+            </div>
+          }
+        >{body}</BottomSheet>
+      </div>
+    </>
+  );
+}
+
 // Status mark menu — popover on desktop, bottom sheet on mobile.
+// Active → Inactive opens the offboarding reason picker; Inactive → Active commits directly.
 function MarkStatusMenu({ anchor, current, count, onClose, onPick }: {
   anchor?: { top: number; left: number };
   current?: ActorStatus;
@@ -136,16 +176,14 @@ function MarkStatusMenu({ anchor, current, count, onClose, onPick }: {
 interface Actor {
   id: number; ssoId: string; name: string; nationality: string; flag: string;
   gender?: "men" | "women";
-  employeeClass?: string;
-  idPassportEndDate?: string;
   height: number; weight: number; photoUrl: string;
   homeShow?: string; homeRole?: string;
-  offerShow?: string; offerRole?: string;
-  contractStartDate?: string; contractEndDate?: string;
   status?: ActorStatus;
+  inactiveReason?: InactiveReason;
+  // Some imported records use a phone number in lieu of SSO until binding completes.
+  pendingPhone?: string;
   skillEntries?: SkillEntry[];
   mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
-  measurements?: Measurements; attachments?: Attachment[];
 }
 
 interface Role { id: string; name: string; headCount: number; homeActors: Actor[]; swingActors: Actor[] }
@@ -212,7 +250,6 @@ const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "me
 const CONTRACT_DATES = ["2024-11-03", "2025-08-11", "2025-03-22", "2025-06-15", "2026-01-01", "2025-12-31", "2026-03-15", "2025-09-30"];
 const SWING_SHOWS = ["UOP", "UCHMMG", "TSMMG", "RPTEA", "PL"];
 const SWING_ROLES = ["Parade Wushu", "Dragon Dance", "Ollivanders", "Raptor Encounter", "Main Stage Cast", "Fan Dance", "Frog Choir", "Stilt Walkers"];
-const ATTACHMENT_NAMES = ["Resume_2024.pdf", "Headshot_2023.pdf", "Demo_Reel.mp4", "Contract.pdf", "Portfolio.pdf"];
 const MEDIA_NOTES = ["Front pose, natural lighting", "Character makeup rehearsal", "Training reel clip", "Stage performance", "", "", "Showcase 2024", ""];
 
 function dHash(n: number): number {
@@ -222,60 +259,11 @@ function dHash(n: number): number {
   return Math.abs(x);
 }
 
-const MEAS_EDITORS = [
-  { name: "James Li Xiao", sso: "20099999" },
-  { name: "Sarah Chen", sso: "20088888" },
-  { name: "Marcus Wong", sso: "20077777" },
-];
-
-function genMeasurements(seed: number, height: number, weight: number): Measurements {
-  const h = dHash(seed * 23);
-  const pair = (base: number, range: number, diff: number): MeasNum => ({
-    tm: base + (h % range),
-    costuming: base + (h % range) + (dHash(seed + diff) % 3) - 1,
-  });
-  const ed = MEAS_EDITORS[h % MEAS_EDITORS.length];
-  const upDate = new Date(Date.now() - ((h % 240) + 30) * 86400000).toISOString().split("T")[0];
-  return {
-    height: { tm: height, costuming: height - (dHash(seed * 3) % 2) },
-    weight: { tm: weight, costuming: weight + (dHash(seed * 5) % 2) },
-    braSize: {
-      tm: `${28 + (h % 12)}${["A", "B", "C", "D", "DD"][dHash(seed * 31) % 5]}`,
-      costuming: `${8 + (h % 10)}${["A", "B", "C", "D"][dHash(seed * 29) % 4]}`,
-    },
-    neck: pair(32, 8, 1),
-    sneakerSize: pair(35, 12, 2),
-    headCircumference: pair(54, 8, 3),
-    acrossShoulderBack: pair(38, 8, 4),
-    acrossFront: pair(38, 12, 5),
-    acrossBack: pair(38, 12, 6),
-    chest: pair(78, 22, 7),
-    waist: pair(58, 22, 8),
-    hips: pair(82, 18, 9),
-    bicep: pair(28, 10, 10),
-    wrist: pair(15, 6, 11),
-    updateInfo: { date: upDate, editor: ed.name, ssoId: ed.sso },
-  };
-}
-
-function genAttachments(seed: number): Attachment[] {
-  const count = dHash(seed * 29) % 3;
-  return Array.from({ length: count }, (_, i) => ({
-    id: `att-${seed}-${i}`,
-    name: ATTACHMENT_NAMES[dHash(seed * 3 + i) % ATTACHMENT_NAMES.length],
-    fileType: ATTACHMENT_NAMES[dHash(seed * 3 + i) % ATTACHMENT_NAMES.length].endsWith(".mp4") ? "video" : "pdf",
-  }));
-}
-
-// Status distribution for mock data: ~80% Active, others sprinkled in so users
-// can see filtering / batch mark in action without staging data manually.
+// Status distribution for mock data: ~85% Active so users can still see the
+// Inactive state in filtering / batch flows without staging data manually.
 function genActorStatus(seed: number): ActorStatus {
   const h = dHash(seed * 71) % 100;
-  if (h < 80) return "Active";
-  if (h < 88) return "On Leave";
-  if (h < 93) return "Suspended";
-  if (h < 97) return "Terminated";
-  return "Transferred";
+  return h < 85 ? "Active" : "Inactive";
 }
 
 function genSkillEntries(seed: number): SkillEntry[] {
@@ -302,15 +290,13 @@ function genActors(seed: number, count: number): Actor[] {
     const weight = 50 + (dHash(seed + i + 3) % 30);
     return {
       id: seed * 100 + i,
-      ssoId: `${100000 + (dHash(seed * 5 + i) % 900000)}`,
+      ssoId: `${20010000 + (dHash(seed * 5 + i) % 990000)}`,
       name: pool.name, nationality: pool.nationality, flag: pool.flag,
       gender: pool.gender,
       height, weight,
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
       status: genActorStatus(seed * 100 + i),
       skillEntries: genSkillEntries(seed * 100 + i),
-      measurements: genMeasurements(seed * 100 + i, height, weight),
-      attachments: genAttachments(seed * 100 + i),
     };
   });
 }
@@ -433,49 +419,32 @@ const SHOW_ROLE_PAIRS = [
   { show: "PL", role: "Parade Lead" },
 ];
 
-const EMPLOYEE_CLASSES = ["Foreign Foreign", "Local", "Foreign Local", "Mainland"];
-
 function genPerformer(seed: number): Actor {
   const h = dHash(seed * 31);
   const pool = ACTOR_POOL[h % ACTOR_POOL.length];
   const pair = SHOW_ROLE_PAIRS[dHash(seed * 7) % SHOW_ROLE_PAIRS.length];
   const photoNum = (dHash(seed * 13) % 70) + 1;
-  const mediaFiles: MediaFile[] = [
-    {
-      type: "video",
-      url: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
-      duration: `0${2 + (dHash(seed * 5) % 5)}:${String(dHash(seed * 17) % 60).padStart(2, "0")}`,
-      note: MEDIA_NOTES[dHash(seed * 23) % MEDIA_NOTES.length],
-    },
-    ...Array.from({ length: 4 + (dHash(seed * 2) % 3) }, (_, i) => ({
-      type: "photo" as const,
-      url: `https://randomuser.me/api/portraits/${pool.gender}/${((photoNum + i + 1) % 70) + 1}.jpg`,
-      note: MEDIA_NOTES[dHash(seed * 29 + i) % MEDIA_NOTES.length],
-    })),
-  ];
+  // 0522 spec: Attachment = photo gallery only (3~4 per actor typically)
+  const mediaFiles: MediaFile[] = Array.from({ length: 3 + (dHash(seed * 2) % 2) }, (_, i) => ({
+    type: "photo" as const,
+    url: `https://randomuser.me/api/portraits/${pool.gender}/${((photoNum + i) % 70) + 1}.jpg`,
+    note: MEDIA_NOTES[dHash(seed * 29 + i) % MEDIA_NOTES.length],
+  }));
   const height = 160 + (dHash(seed) % 26);
   const weight = 48 + (dHash(seed * 2) % 35);
   const contractEndDate = CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
-  const contractStartDate = CONTRACT_DATES[dHash(seed * 47) % CONTRACT_DATES.length];
-  const offerPair = SHOW_ROLE_PAIRS[dHash(seed * 53) % SHOW_ROLE_PAIRS.length];
   return {
     id: 9000 + seed, ssoId: `2001${String(7000 + dHash(seed * 19) % 3000)}`,
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
     gender: pool.gender,
-    employeeClass: EMPLOYEE_CLASSES[dHash(seed * 41) % EMPLOYEE_CLASSES.length],
-    idPassportEndDate: CONTRACT_DATES[dHash(seed * 43) % CONTRACT_DATES.length],
     height, weight,
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
-    offerShow: offerPair.show, offerRole: offerPair.role,
-    contractStartDate, contractEndDate,
     status: genActorStatus(9000 + seed),
     skillEntries: genSkillEntries(seed),
     mediaFiles,
     showRoleRecords: genShowRoleRecords(seed, pair.show, pair.role, contractEndDate),
     eventRecords: genEventRecords(seed),
-    measurements: genMeasurements(seed, height, weight),
-    attachments: genAttachments(seed),
   };
 }
 
@@ -487,37 +456,21 @@ const PERFORMERS: Actor[] = Array.from({ length: 80 }, (_, i) => genPerformer(i 
 // rest deterministically from the actor's id.
 function enrichActor(a: Actor, showName: string, roleName: string): Actor {
   const seed = a.id;
-  const contractEnd = a.contractEndDate ?? CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
-  const contractStart = a.contractStartDate ?? CONTRACT_DATES[dHash(seed * 47) % CONTRACT_DATES.length];
-  const offerPair = SHOW_ROLE_PAIRS[dHash(seed * 53) % SHOW_ROLE_PAIRS.length];
   const photoNum = (dHash(seed * 13) % 70) + 1;
   const gender = a.gender ?? "men";
-  const mediaFiles: MediaFile[] = a.mediaFiles ?? [
-    {
-      type: "video",
-      url: `https://randomuser.me/api/portraits/${gender}/${photoNum}.jpg`,
-      duration: `0${2 + (dHash(seed * 5) % 5)}:${String(dHash(seed * 17) % 60).padStart(2, "0")}`,
-      note: MEDIA_NOTES[dHash(seed * 23) % MEDIA_NOTES.length],
-    },
-    ...Array.from({ length: 4 + (dHash(seed * 2) % 3) }, (_, i) => ({
-      type: "photo" as const,
-      url: `https://randomuser.me/api/portraits/${gender}/${((photoNum + i + 1) % 70) + 1}.jpg`,
-      note: MEDIA_NOTES[dHash(seed * 29 + i) % MEDIA_NOTES.length],
-    })),
-  ];
+  const mediaFiles: MediaFile[] = a.mediaFiles ?? Array.from({ length: 3 + (dHash(seed * 2) % 2) }, (_, i) => ({
+    type: "photo" as const,
+    url: `https://randomuser.me/api/portraits/${gender}/${((photoNum + i) % 70) + 1}.jpg`,
+    note: MEDIA_NOTES[dHash(seed * 29 + i) % MEDIA_NOTES.length],
+  }));
+  const fallbackDate = CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
   return {
     ...a,
     homeShow: a.homeShow ?? showName,
     homeRole: a.homeRole ?? roleName,
-    offerShow: a.offerShow ?? offerPair.show,
-    offerRole: a.offerRole ?? offerPair.role,
-    contractStartDate: contractStart,
-    contractEndDate: contractEnd,
-    employeeClass: a.employeeClass ?? EMPLOYEE_CLASSES[dHash(seed * 41) % EMPLOYEE_CLASSES.length],
-    idPassportEndDate: a.idPassportEndDate ?? CONTRACT_DATES[dHash(seed * 43) % CONTRACT_DATES.length],
     status: a.status ?? genActorStatus(seed),
     mediaFiles,
-    showRoleRecords: a.showRoleRecords ?? genShowRoleRecords(seed, showName, roleName, contractEnd),
+    showRoleRecords: a.showRoleRecords ?? genShowRoleRecords(seed, showName, roleName, fallbackDate),
     eventRecords: a.eventRecords ?? genEventRecords(seed),
   };
 }
@@ -685,54 +638,32 @@ function SectionHeader({ title, count, editing, onToggleCollapse, collapsed, onE
 
 // ── Filter Panel (shared by Card View & Roster View) ──────────────────────
 
-type DateOp = "lt" | "gt" | "between";
-interface DateRange { op: DateOp; v1: string; v2: string }
-
 interface Filters {
   performer: string;
-  employeeClass: string;
   heightMin: string; heightMax: string;
   weightMin: string; weightMax: string;
   gender: string;
   skillType: string; skillSub: string;
-  offerShow: string; offerRole: string;
   homeShow: string; homeRole: string;
   swingShow: string; swingRole: string;
   eventName: string; eventRoleName: string;
-  contractEnd: DateRange;
-  idPassportEnd: DateRange;
   nationality: string;
   status: ActorStatus | "All";
 }
 
-const EMPTY_DATE: DateRange = { op: "lt", v1: "", v2: "" };
 const DEFAULT_FILTER_STATUS: ActorStatus = "Active";
 const EMPTY_FILTERS: Filters = {
-  performer: "", employeeClass: "",
+  performer: "",
   heightMin: "", heightMax: "", weightMin: "", weightMax: "",
   gender: "", skillType: "", skillSub: "",
-  offerShow: "", offerRole: "", homeShow: "", homeRole: "", swingShow: "", swingRole: "",
+  homeShow: "", homeRole: "", swingShow: "", swingRole: "",
   eventName: "", eventRoleName: "",
-  contractEnd: { ...EMPTY_DATE }, idPassportEnd: { ...EMPTY_DATE },
   nationality: "",
   status: DEFAULT_FILTER_STATUS,
 };
 
-function dateRangeActive(d: DateRange): boolean {
-  if (d.op === "between") return !!d.v1 && !!d.v2;
-  return !!d.v1;
-}
-
-function dateRangeMatches(d: DateRange, value: string | undefined): boolean {
-  if (!value) return false;
-  if (d.op === "lt") return value < d.v1;
-  if (d.op === "gt") return value > d.v1;
-  return value >= d.v1 && value <= d.v2;
-}
-
 function hasAnyFilter(f: Filters): boolean {
   return Object.entries(f).some(([k, v]) => {
-    if (k === "contractEnd" || k === "idPassportEnd") return dateRangeActive(v as DateRange);
     if (k === "status") return v !== DEFAULT_FILTER_STATUS;
     return v !== "";
   });
@@ -741,9 +672,7 @@ function hasAnyFilter(f: Filters): boolean {
 function countActiveFilters(f: Filters): number {
   let n = 0;
   for (const [k, v] of Object.entries(f)) {
-    if (k === "contractEnd" || k === "idPassportEnd") {
-      if (dateRangeActive(v as DateRange)) n++;
-    } else if (k === "status") {
+    if (k === "status") {
       if (v !== DEFAULT_FILTER_STATUS) n++;
     } else if (v !== "") n++;
   }
@@ -755,7 +684,6 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
     const lq = f.performer.toLowerCase();
     if (!a.name.toLowerCase().includes(lq) && !a.ssoId.includes(lq)) return false;
   }
-  if (f.employeeClass && a.employeeClass !== f.employeeClass) return false;
   if (f.heightMin && a.height < +f.heightMin) return false;
   if (f.heightMax && a.height > +f.heightMax) return false;
   if (f.weightMin && a.weight < +f.weightMin) return false;
@@ -765,8 +693,6 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
     if (g && a.gender !== g) return false;
   }
   if (f.skillType && !a.skillEntries?.some((e) => e.type === f.skillType && (!f.skillSub || e.skill === f.skillSub))) return false;
-  if (f.offerShow && a.offerShow !== f.offerShow) return false;
-  if (f.offerRole && a.offerRole !== f.offerRole) return false;
   if (f.homeShow && a.homeShow !== f.homeShow) return false;
   if (f.homeRole && a.homeRole !== f.homeRole) return false;
   if (f.swingShow && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.show === f.swingShow)) return false;
@@ -777,8 +703,6 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
       && (!f.eventRoleName || e.roleName === f.eventRoleName));
     if (!hit) return false;
   }
-  if (dateRangeActive(f.contractEnd) && !dateRangeMatches(f.contractEnd, a.contractEndDate)) return false;
-  if (dateRangeActive(f.idPassportEnd) && !dateRangeMatches(f.idPassportEnd, a.idPassportEndDate)) return false;
   if (f.nationality && a.nationality !== f.nationality) return false;
   if (f.status !== "All") {
     const cur = statusOf ? statusOf(a) : (a.status ?? "Active");
@@ -789,20 +713,15 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
 
 const ALL_SHOWS = DATA.flatMap((l) => l.shows);
 const ALL_NATIONALITIES = [...new Set(ACTOR_POOL.map((a) => a.nationality))].sort();
-const EMPLOYEE_CLASS_OPTS = ["Local", "Foreign Local", "Foreign Foreign", "Mainland"];
 
 type StringFilterKey = {
   [K in keyof Filters]: Filters[K] extends string ? K : never
-}[keyof Filters];
-type DateFilterKey = {
-  [K in keyof Filters]: Filters[K] extends DateRange ? K : never
 }[keyof Filters];
 
 function FilterPanel({ filters, onChange, onClose }: {
   filters: Filters; onChange: (next: Filters) => void; onClose: () => void;
 }) {
   const set = (k: StringFilterKey, v: string) => onChange({ ...filters, [k]: v });
-  const setDate = (k: DateFilterKey, next: DateRange) => onChange({ ...filters, [k]: next });
   const skillsForType = SKILLSET_CATEGORIES.find((c) => c.type === filters.skillType)?.skills ?? [];
   const rolesForShow = (showName: string) => ALL_SHOWS.find((s) => s.name === showName)?.roles ?? [];
 
@@ -825,46 +744,12 @@ function FilterPanel({ filters, onChange, onClose }: {
     </div>
   );
 
-  const renderDateRange = (key: DateFilterKey, label: string) => {
-    const d = filters[key];
-    const cols = d.op === "between" ? "grid-cols-[110px_1fr_1fr]" : "grid-cols-[110px_1fr]";
-    return (
-      <div className="sm:col-span-2">
-        <label className={lblCls}>{label}</label>
-        <div className={`grid gap-1.5 ${cols}`}>
-          <select value={d.op}
-            onChange={(e) => setDate(key, { ...d, op: e.target.value as DateOp })}
-            className={fieldCls}>
-            <option value="lt">Earlier than</option>
-            <option value="gt">Later than</option>
-            <option value="between">Between</option>
-          </select>
-          <input type="date" value={d.v1}
-            onChange={(e) => setDate(key, { ...d, v1: e.target.value })}
-            className={fieldCls} />
-          {d.op === "between" && (
-            <input type="date" value={d.v2}
-              onChange={(e) => setDate(key, { ...d, v2: e.target.value })}
-              className={fieldCls} />
-          )}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-sm mb-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div>
           <label className={lblCls}>Performer</label>
           <input value={filters.performer} onChange={(e) => set("performer", e.target.value)} placeholder="请输入SSO/姓名" className={fieldCls} />
-        </div>
-        <div>
-          <label className={lblCls}>Employee Class</label>
-          <select value={filters.employeeClass} onChange={(e) => set("employeeClass", e.target.value)} className={fieldCls}>
-            <option value="">请选择</option>
-            {EMPLOYEE_CLASS_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
         </div>
         <div>
           <label className={lblCls}>Height Range</label>
@@ -901,8 +786,7 @@ function FilterPanel({ filters, onChange, onClose }: {
             </select>
           </div>
         </div>
-        {renderShowRolePair("offerShow", "offerRole", "Offer Show & Role")}
-        {renderShowRolePair("homeShow", "homeRole", "Current Home Show & Role")}
+        {renderShowRolePair("homeShow", "homeRole", "Home Show & Role")}
         {renderShowRolePair("swingShow", "swingRole", "Swing Show & Role")}
         <div className="sm:col-span-2">
           <label className={lblCls}>Event Experience</label>
@@ -921,8 +805,6 @@ function FilterPanel({ filters, onChange, onClose }: {
             </select>
           </div>
         </div>
-        {renderDateRange("contractEnd", "Contract End Date")}
-        {renderDateRange("idPassportEnd", "ID/Passport Valid End Date")}
         <div>
           <label className={lblCls}>Nationality</label>
           <select value={filters.nationality} onChange={(e) => set("nationality", e.target.value)} className={fieldCls}>
@@ -950,280 +832,6 @@ function FilterPanel({ filters, onChange, onClose }: {
   );
 }
 
-// ── Measurement Section ────────────────────────────────────────────────────
-
-const MEAS_GROUPS: { col: ("left" | "mid" | "right"); label: string; key: keyof Measurements; kind: "num" | "str" }[] = [
-  // Left column
-  { col: "left", label: "Height 身高(cm)", key: "height", kind: "num" },
-  { col: "left", label: "Neck 领围(cm)", key: "neck", kind: "num" },
-  { col: "left", label: "Across Shoulder Back 后肩宽(cm)", key: "acrossShoulderBack", kind: "num" },
-  { col: "left", label: "Chest 胸围(cm)", key: "chest", kind: "num" },
-  { col: "left", label: "Bicep 大臂围(cm)", key: "bicep", kind: "num" },
-  // Mid column
-  { col: "mid", label: "Weight 体重(kg)", key: "weight", kind: "num" },
-  { col: "mid", label: "Sneaker Size 运动鞋尺码", key: "sneakerSize", kind: "num" },
-  { col: "mid", label: "Across Front 前胸宽(cm)", key: "acrossFront", kind: "num" },
-  { col: "mid", label: "Waist 腰围(cm)", key: "waist", kind: "num" },
-  { col: "mid", label: "Wrist 手腕(cm)", key: "wrist", kind: "num" },
-  // Right column
-  { col: "right", label: "Bra Size 胸罩罩杯", key: "braSize", kind: "str" },
-  { col: "right", label: "Head Circumference 头围(cm)", key: "headCircumference", kind: "num" },
-  { col: "right", label: "Across Back 后背宽(cm)", key: "acrossBack", kind: "num" },
-  { col: "right", label: "Hips 臀围(cm)", key: "hips", kind: "num" },
-];
-
-// Mobile groupings per 0518 spec: 4 logical sections, first shown by default.
-const MEAS_MOBILE_GROUPS: { title: string; keys: (keyof Measurements)[] }[] = [
-  { title: "整体与头部", keys: ["height", "weight", "headCircumference"] },
-  { title: "肩颈与宽度", keys: ["neck", "acrossShoulderBack", "acrossFront", "acrossBack"] },
-  { title: "躯干围度", keys: ["chest", "waist", "hips", "braSize"] },
-  { title: "四肢与其他", keys: ["bicep", "wrist", "sneakerSize"] },
-];
-
-const MEAS_LABEL_BY_KEY: Partial<Record<keyof Measurements, { label: string; kind: "num" | "str" }>> = (() => {
-  const m: Partial<Record<keyof Measurements, { label: string; kind: "num" | "str" }>> = {};
-  for (const g of MEAS_GROUPS) m[g.key] = { label: g.label, kind: g.kind };
-  return m;
-})();
-
-function MeasurementSection({ meas, measDraft, setMeasDraft, editing, collapsed, onToggleCollapse, onEdit, onSave, onCancel, onUpload }: {
-  meas: Measurements; measDraft: Measurements; setMeasDraft: (m: Measurements) => void;
-  editing: boolean; collapsed: boolean;
-  onToggleCollapse: () => void; onEdit: () => void; onSave: () => void; onCancel: () => void;
-  onUpload: () => void;
-}) {
-  const [mobileExpandAll, setMobileExpandAll] = useState(false);
-  const cols: Record<"left" | "mid" | "right", typeof MEAS_GROUPS> = { left: [], mid: [], right: [] };
-  MEAS_GROUPS.forEach((g) => cols[g.col].push(g));
-
-  // Use the "costuming" slot as the canonical (and only) value going forward.
-  function renderCell(group: typeof MEAS_GROUPS[number]) {
-    const src = editing ? measDraft : meas;
-    const field = src[group.key] as MeasNum | MeasStr;
-    if (editing) {
-      const update = (val: string) => {
-        const next = { ...measDraft };
-        const cur = next[group.key] as MeasNum | MeasStr;
-        if (group.kind === "num") {
-          (next[group.key] as MeasNum) = { ...(cur as MeasNum), costuming: val === "" ? "" : +val };
-        } else {
-          (next[group.key] as MeasStr) = { ...(cur as MeasStr), costuming: val };
-        }
-        setMeasDraft(next);
-      };
-      return (
-        <div className="grid grid-cols-[1fr_72px] items-center gap-1.5 py-1">
-          <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
-          <input
-            type={group.kind === "num" ? "number" : "text"}
-            value={String(field.costuming ?? "")}
-            onChange={(e) => update(e.target.value)}
-            className="h-7 px-1.5 border border-gray-200 rounded text-[11px] text-center focus:outline-none focus:ring-1 focus:ring-brand-300" />
-        </div>
-      );
-    }
-    return (
-      <div className="grid grid-cols-[1fr_72px] items-center gap-1.5 py-1.5">
-        <span className="text-[10.5px] text-gray-500 leading-tight">{group.label}</span>
-        <span className="text-[11px] font-semibold text-gray-900 text-center">{field.costuming === "" ? "—" : field.costuming}</span>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
-        onClick={onToggleCollapse}>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-900">Measurement</span>
-        </div>
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          {!editing && !collapsed && (
-            <>
-              <span className="text-[10px] text-gray-400">
-                Update Info: <span className="text-gray-600">{meas.updateInfo.date || "—"}</span>
-              </span>
-              <button onClick={onUpload}
-                className="hidden md:flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
-                <Upload className="w-3 h-3" />Upload
-              </button>
-              <button onClick={onEdit}
-                className="hidden md:flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-colors">
-                <Pencil className="w-3 h-3" />Edit
-              </button>
-            </>
-          )}
-          {editing && (
-            <>
-              <button onClick={onCancel}
-                className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-white transition-colors">Cancel</button>
-              <button onClick={onSave}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors">
-                <Check className="w-3 h-3" />Save
-              </button>
-            </>
-          )}
-          <button onClick={onToggleCollapse} className="ml-1 p-0.5">
-            {collapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
-          </button>
-        </div>
-      </div>
-      {!collapsed && (
-        <>
-          {/* Desktop layout — 3 columns of all fields */}
-          <div className="hidden md:block px-4 sm:px-5 pb-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 divide-x-0">
-              {(["left", "mid", "right"] as const).map((c) => (
-                <div key={c} className="divide-y divide-gray-50">
-                  {cols[c].map((g) => <div key={g.key as string}>{renderCell(g)}</div>)}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Mobile layout — 4 grouped sections; default shows the first 2 (per 0518 spec). */}
-          <div className="md:hidden px-5 pb-4 space-y-3">
-            {MEAS_MOBILE_GROUPS.map((mg, gi) => {
-              if (gi > 1 && !mobileExpandAll) return null;
-              return (
-                <div key={mg.title} className="rounded-xl border border-gray-100 bg-white">
-                  <div className="px-3 py-2 border-b border-gray-50 text-[12px] font-semibold text-gray-700">{mg.title}</div>
-                  <div className="px-3 py-1 divide-y divide-gray-50">
-                    {mg.keys.map((k) => {
-                      const info = MEAS_LABEL_BY_KEY[k];
-                      if (!info) return null;
-                      const group = MEAS_GROUPS.find((g) => g.key === k);
-                      if (!group) return null;
-                      return <div key={k as string}>{renderCell(group)}</div>;
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => setMobileExpandAll((p) => !p)}
-              className="w-full h-9 rounded-lg border border-gray-200 text-xs text-gray-600 flex items-center justify-center gap-1"
-            >
-              {mobileExpandAll ? <>收起 <ChevronUp className="w-3.5 h-3.5" /></> : <>展开全部 <ChevronDown className="w-3.5 h-3.5" /></>}
-            </button>
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-
-// ── Measurement Import Modal ───────────────────────────────────────────────
-
-function MeasurementImportModal({ onClose, onApply, ssoId }: {
-  onClose: () => void;
-  onApply: (next: Partial<Measurements>) => void;
-  ssoId: string;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState("");
-  const [preview, setPreview] = useState<string[][]>([]);
-
-  function downloadTemplate() {
-    const header = ["SSO", ...MEAS_GROUPS.map((g) => g.label)];
-    const sample = [ssoId, ...MEAS_GROUPS.map(() => "")];
-    const ws = XLSX.utils.aoa_to_sheet([header, sample]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Measurement");
-    XLSX.writeFile(wb, `measurement_template_${ssoId}.xlsx`);
-  }
-
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFileName(f.name);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const data = evt.target?.result;
-      const wb = XLSX.read(data, { type: "binary" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 }) as string[][];
-      setPreview(rows.slice(0, 6));
-    };
-    reader.readAsBinaryString(f);
-    e.target.value = "";
-  }
-
-  function applyImport() {
-    if (preview.length < 2) { onClose(); return; }
-    const dataRow = preview[1];
-    // dataRow[0] = SSO, dataRow[1..] = values aligned to MEAS_GROUPS
-    const next: Partial<Measurements> = {};
-    MEAS_GROUPS.forEach((g, i) => {
-      const raw = String(dataRow[i + 1] ?? "").trim();
-      if (!raw) return;
-      if (g.kind === "num") {
-        const v = Number(raw);
-        if (!Number.isNaN(v)) (next[g.key] as MeasNum) = { tm: v, costuming: v };
-      } else {
-        (next[g.key] as MeasStr) = { tm: raw, costuming: raw };
-      }
-    });
-    onApply(next);
-    onClose();
-  }
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Upload Measurement</h2>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
-          <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
-            <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-blue-700">Download template first</p>
-              <p className="text-xs text-blue-500 mt-0.5">Includes all measurement fields plus SSO.</p>
-            </div>
-            <button onClick={downloadTemplate}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors flex-shrink-0">
-              <Download className="w-3.5 h-3.5" />Template
-            </button>
-          </div>
-
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
-          <div onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
-            <Upload className="w-6 h-6" />
-            <span className="text-sm font-medium px-2 text-center">{fileName || "Click to select .xlsx / .xls / .csv"}</span>
-          </div>
-
-          {preview.length > 0 && (
-            <div className="overflow-auto rounded-xl border border-gray-100 max-h-72">
-              <table className="w-full text-xs">
-                <tbody>
-                  {preview.map((row, i) => (
-                    <tr key={i} className={i === 0 ? "bg-gray-50 font-semibold text-gray-700" : "text-gray-600"}>
-                      {row.map((cell, j) => (
-                        <td key={j} className="px-3 py-2 border-b border-gray-100 whitespace-nowrap">{String(cell ?? "")}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
-          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={applyImport} disabled={preview.length < 2}
-            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Apply
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Basic Info — mobile-only sub page ──────────────────────────────────────
 
 function BasicInfoMobile({ actor, headshotUrl, onBack }: {
@@ -1233,18 +841,12 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
   const fields: { label: string; value: string }[] = [
     { label: "SSO", value: actor.ssoId },
     { label: "Name", value: actor.name },
-    { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
     { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
-    { label: "Employee Class", value: actor.employeeClass ?? "—" },
+    { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
     { label: "Height", value: `${actor.height} cm` },
     { label: "Weight", value: `${actor.weight} kg` },
     { label: "Home Show", value: actor.homeShow ?? "—" },
     { label: "Home Role", value: actor.homeRole ?? "—" },
-    { label: "Offer Show", value: actor.offerShow ?? "—" },
-    { label: "Offer Role", value: actor.offerRole ?? "—" },
-    { label: "Contract Start", value: actor.contractStartDate ?? "—" },
-    { label: "Contract End", value: actor.contractEndDate ?? "—" },
-    { label: "ID/Passport Valid End Date", value: actor.idPassportEndDate ?? "—" },
   ];
 
   return (
@@ -1297,11 +899,10 @@ function ActorDetailDrawer({
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<{ top: number; left: number } | null>(null);
 
   const [collapsed, setCollapsed] = useState({
-    skills: false, portfolio: false, showRole: false,
-    measurements: false, event: false, attachments: false,
+    skills: false, attachment: false, showRole: false, event: false,
   });
   const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
-  const [showMore, setShowMore] = useState(false);
+  const [offboardOpen, setOffboardOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const askConfirm = (title: string, message: string, onConfirm: () => void) =>
     setConfirm({ title, message, onConfirm });
@@ -1346,7 +947,7 @@ function ActorDetailDrawer({
     setAddingSkill(false);
   }
 
-  // ── Portfolio section ──────────────────────────────────────────────────
+  // ── Attachment section (0522 spec: merged Portfolio + Attachment → photo gallery) ──
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [addingMedia, setAddingMedia] = useState(false);
@@ -1356,16 +957,22 @@ function ActorDetailDrawer({
   const portfolioInputRef = useRef<HTMLInputElement>(null);
 
   function handlePortfolioPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const url = URL.createObjectURL(f);
-    const type: "photo" | "video" = f.type.startsWith("video") ? "video" : "photo";
-    // Desktop inline-add flow has addingMedia=true; route to preview/note form.
-    // Mobile trailing "+" tile bypasses that — append directly.
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    // Desktop inline-add flow stages a single file in the preview form.
     if (addingMedia) {
+      const f = files[0];
+      const url = URL.createObjectURL(f);
+      const type: "photo" | "video" = f.type.startsWith("video") ? "video" : "photo";
       setMediaForm((p) => ({ ...p, file: f, url, type }));
     } else {
-      setMediaFiles((p) => [...p, { type, url, note: "" }]);
+      // Mobile "+" tile and desktop bulk pick: append all selected files immediately.
+      const next: MediaFile[] = Array.from(files).map((f) => ({
+        type: (f.type.startsWith("video") ? "video" : "photo") as "photo" | "video",
+        url: URL.createObjectURL(f),
+        note: "",
+      }));
+      setMediaFiles((p) => [...p, ...next]);
     }
     e.target.value = "";
   }
@@ -1381,90 +988,18 @@ function ActorDetailDrawer({
   }
 
   // ── Show & Role section ────────────────────────────────────────────────
+  // Per 0522 spec, the actor-side "Add show & role" entry is removed —
+  // assignments are now imported in bulk or driven from the show/role page.
+  // This section is read-only here (remove still allowed).
   const initialShowRoleRecords: ShowRoleRecord[] = actor.showRoleRecords
     ?? (actor.homeShow && actor.homeRole
-      ? [{ id: `sr-${actor.id}-home`, show: actor.homeShow, role: actor.homeRole, roleType: "home", date: actor.contractEndDate ?? "—", status: "active" }]
+      ? [{ id: `sr-${actor.id}-home`, show: actor.homeShow, role: actor.homeRole, roleType: "home", date: "—", status: "active" }]
       : []);
   const [showRoleRecords, setShowRoleRecords] = useState<ShowRoleRecord[]>(initialShowRoleRecords);
-  const [addingShowRole, setAddingShowRole] = useState(false);
-  const [showRoleForm, setShowRoleForm] = useState<{ show: string; role: string; roleType: "home" | "swing" }>({ show: "", role: "", roleType: "home" });
-
-  const rolesForFormShow = DATA.flatMap((l) => l.shows).find((s) => s.name === showRoleForm.show)?.roles ?? [];
-
-  function saveShowRole() {
-    if (!showRoleForm.show || !showRoleForm.role) return;
-    setShowRoleRecords((p) => [
-      { id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role, roleType: showRoleForm.roleType, date: new Date().toISOString().split("T")[0], status: "active" },
-      ...p,
-    ]);
-    setShowRoleForm({ show: "", role: "", roleType: "home" });
-    setAddingShowRole(false);
-  }
-
-  // ── Measurements section ───────────────────────────────────────────────
-  const fallbackMeas: Measurements = {
-    height: { tm: actor.height, costuming: actor.height },
-    weight: { tm: actor.weight, costuming: actor.weight },
-    braSize: { tm: "", costuming: "" },
-    neck: { tm: "", costuming: "" }, sneakerSize: { tm: "", costuming: "" }, headCircumference: { tm: "", costuming: "" },
-    acrossShoulderBack: { tm: "", costuming: "" }, acrossFront: { tm: "", costuming: "" }, acrossBack: { tm: "", costuming: "" },
-    chest: { tm: "", costuming: "" }, waist: { tm: "", costuming: "" }, hips: { tm: "", costuming: "" },
-    bicep: { tm: "", costuming: "" }, wrist: { tm: "", costuming: "" },
-    updateInfo: { date: "", editor: "—", ssoId: "" },
-  };
-  const [meas, setMeas] = useState<Measurements>(actor.measurements ?? fallbackMeas);
-  const [editingMeas, setEditingMeas] = useState(false);
-  const [measDraft, setMeasDraft] = useState<Measurements>(meas);
-
-  function saveMeas() {
-    const today = new Date().toISOString().split("T")[0];
-    const next: Measurements = {
-      ...measDraft,
-      updateInfo: { date: today, editor: "Current Casting", ssoId: "30099999" },
-    };
-    setMeas(next);
-    setEditingMeas(false);
-  }
-
-  const [measImportOpen, setMeasImportOpen] = useState(false);
-
-  function applyMeasurementImport(next: Partial<Measurements>) {
-    const today = new Date().toISOString().split("T")[0];
-    setMeas((prev) => ({
-      ...prev,
-      ...next,
-      updateInfo: { date: today, editor: "Imported", ssoId: "" },
-    }));
-  }
 
   // ── Event Experience section ───────────────────────────────────────────
+  // Per 0522 spec, add flow is now Excel import; keep removal here.
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
-  const [addingEvent, setAddingEvent] = useState(false);
-  const [eventForm, setEventForm] = useState({ eventName: "", roleName: "", startDate: "", endDate: "" });
-  const eventRolesForForm = rolesForEvent(eventForm.eventName);
-
-  function saveEvent() {
-    if (!eventForm.eventName || !eventForm.roleName || !eventForm.startDate) return;
-    setEventRecords((p) => [{ id: `ev-${Date.now()}`, ...eventForm, status: "active" }, ...p]);
-    setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" });
-    setAddingEvent(false);
-  }
-
-  // ── Attachments section ────────────────────────────────────────────────
-  const [attachments, setAttachments] = useState<Attachment[]>(actor.attachments ?? []);
-  const attachInputRef = useRef<HTMLInputElement>(null);
-
-  function handleAttachFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files) return;
-    const newAtts: Attachment[] = Array.from(files).map((f) => ({
-      id: `att-${Date.now()}-${Math.random()}`,
-      name: f.name,
-      fileType: f.type.includes("video") ? "video" : "pdf",
-    }));
-    setAttachments((p) => [...p, ...newAtts]);
-    e.target.value = "";
-  }
 
   const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300";
   const labelCls = "block text-xs text-gray-400 mb-1";
@@ -1477,11 +1012,6 @@ function ActorDetailDrawer({
       {lightboxIdx !== null && (
         <Lightbox files={mediaFiles} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
       )}
-      {measImportOpen && (
-        <MeasurementImportModal ssoId={actor.ssoId}
-          onApply={applyMeasurementImport}
-          onClose={() => setMeasImportOpen(false)} />
-      )}
       {confirm && (
         <ConfirmDialog
           title={confirm.title}
@@ -1489,6 +1019,11 @@ function ActorDetailDrawer({
           onCancel={() => setConfirm(null)}
           onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
         />
+      )}
+      {offboardOpen && (
+        <OffboardingDialog count={1}
+          onClose={() => setOffboardOpen(false)}
+          onConfirm={() => setStatusFor([actor.id], "Inactive")} />
       )}
       <input ref={headshotInputRef} type="file" accept="image/*" className="hidden"
         onChange={(e) => {
@@ -1499,7 +1034,13 @@ function ActorDetailDrawer({
       {statusMenuAnchor && (
         <MarkStatusMenu anchor={statusMenuAnchor} current={currentStatus}
           onClose={() => setStatusMenuAnchor(null)}
-          onPick={(s) => setStatusFor([actor.id], s)} />
+          onPick={(s) => {
+            if (s === "Inactive" && currentStatus !== "Inactive") {
+              setOffboardOpen(true);
+            } else {
+              setStatusFor([actor.id], s);
+            }
+          }} />
       )}
       {section === "basic" && (
         <BasicInfoMobile actor={actor} headshotUrl={headshotUrl} onBack={() => onOpenSection(null)} />
@@ -1631,47 +1172,21 @@ function ActorDetailDrawer({
           </div>
         )}
 
-        {/* Basic Info — top row (desktop only) */}
-        <div className="hidden md:grid flex-shrink-0 grid-cols-2 sm:grid-cols-3 md:grid-cols-5 border-b border-gray-100">
+        {/* Basic Info — single row (desktop only). Per 0522 spec the field set
+            is exactly: SSO / Gender / Nationality / Height / Weight. */}
+        <div className="hidden md:grid flex-shrink-0 grid-cols-5 border-b border-gray-100">
           {[
             { label: "SSO", value: actor.ssoId, mono: true },
+            { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
             { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
             { label: "Height", value: `${actor.height} cm` },
             { label: "Weight", value: `${actor.weight} kg` },
-            { label: "Contract End", value: actor.contractEndDate ?? "—" },
           ].map(({ label, value, mono }) => (
-            <div key={label} className="px-2 py-2.5 text-center border-r border-b border-gray-100 last:border-r-0 sm:[&:nth-child(3n)]:border-r-0 md:[&:nth-child(3n)]:border-r md:[&:nth-child(5n)]:border-r-0">
+            <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
               <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
               <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
             </div>
           ))}
-        </div>
-
-        {/* Basic Info — More expander (desktop only; mobile uses the dedicated Basic Info page) */}
-        <div className="hidden md:block flex-shrink-0 border-b border-gray-100">
-          <button onClick={() => setShowMore((p) => !p)}
-            className="w-full flex items-center justify-center gap-1 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-            {showMore ? "Less" : "More"}
-            {showMore ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-          {showMore && (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-5 pb-3 text-[11px]">
-              {[
-                ["Gender", actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : ""],
-                ["Employee Class", actor.employeeClass],
-                ["Offer Show", actor.offerShow],
-                ["Offer Role", actor.offerRole],
-                ["Contract Start Date", actor.contractStartDate],
-                ["Contract End Date", actor.contractEndDate],
-                ["ID/Passport Valid End Date", actor.idPassportEndDate],
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-2 border-b border-gray-50 last:border-b-0 pb-1">
-                  <span className="text-gray-400 flex-shrink-0">{label}</span>
-                  <span className="text-gray-800 font-medium truncate">{value || "—"}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Scrollable sections */}
@@ -1814,27 +1329,25 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Portfolio ── */}
+          {/* ── Attachment (0522 spec: merged Portfolio + Attachment → photo gallery) ── */}
           <div className="border-b border-gray-100">
-            <input ref={portfolioInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handlePortfolioPick} />
+            <input ref={portfolioInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePortfolioPick} />
             <SectionHeader
-              title="Portfolio" count={mediaFiles.length}
-              editing={addingMedia} collapsed={collapsed.portfolio}
-              onToggleCollapse={() => toggle("portfolio")}
+              title="Attachment" count={mediaFiles.length}
+              editing={addingMedia} collapsed={collapsed.attachment}
+              onToggleCollapse={() => toggle("attachment")}
               onAdd={() => setAddingMedia(true)} addLabel="Add"
               onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", file: null, url: "", type: "photo" }); }}
               onSave={saveMedia}
             />
-            {!collapsed.portfolio && (
+            {!collapsed.attachment && (
               <div className="px-5 pb-4">
                 {/* Add form */}
                 {addingMedia && (
                   <div className="mb-3 p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
                     {mediaForm.url ? (
-                      <div className="relative rounded-xl overflow-hidden bg-white aspect-video">
-                        {mediaForm.type === "video"
-                          ? <video src={mediaForm.url} controls className="w-full h-full object-contain" />
-                          : <img src={mediaForm.url} alt="" className="w-full h-full object-contain" />}
+                      <div className="relative rounded-xl overflow-hidden bg-white aspect-[3/4] max-h-72">
+                        <img src={mediaForm.url} alt="" className="w-full h-full object-contain" />
                         <button onClick={() => setMediaForm((p) => ({ ...p, file: null, url: "", type: "photo" }))}
                           className="absolute top-2 right-2 w-6 h-6 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white">
                           <X className="w-3.5 h-3.5" />
@@ -1844,19 +1357,19 @@ function ActorDetailDrawer({
                       <div onClick={() => portfolioInputRef.current?.click()}
                         className="rounded-xl border-2 border-dashed border-brand-200 h-20 flex flex-col items-center justify-center gap-1 text-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
                         <Upload className="w-4 h-4" />
-                        <span className="text-xs">Click to select photo or video</span>
+                        <span className="text-xs">Click to select photo(s)</span>
                       </div>
                     )}
                     <div>
                       <label className={labelCls}>Note (optional)</label>
                       <input value={mediaForm.note} onChange={(e) => setMediaForm((p) => ({ ...p, note: e.target.value }))}
-                        className={inputCls} placeholder="e.g. Stage performance, natural lighting" />
+                        className={inputCls} placeholder="e.g. Front pose, stage lighting" />
                     </div>
                   </div>
                 )}
                 {/* Desktop grid */}
                 {mediaFiles.length === 0 && !addingMedia ? (
-                  <p className="hidden md:block text-xs text-gray-300 py-3 text-center">No media files</p>
+                  <p className="hidden md:block text-xs text-gray-300 py-3 text-center">No photos</p>
                 ) : (
                   <div className="hidden md:grid grid-cols-3 gap-2">
                     {mediaFiles.map((f, i) => (
@@ -1876,7 +1389,7 @@ function ActorDetailDrawer({
                             className="absolute inset-0 opacity-0 group-hover/media:opacity-100 bg-black/20 transition-opacity flex items-center justify-center">
                             <Eye className="w-5 h-5 text-white drop-shadow" />
                           </button>
-                          <button onClick={() => askConfirm("Remove media", "This media file will be removed from the portfolio. Continue?",
+                          <button onClick={() => askConfirm("Remove photo", "This photo will be removed from the attachment gallery. Continue?",
                             () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)))}
                             className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/media:opacity-100">
                             <X className="w-3 h-3" />
@@ -1907,7 +1420,7 @@ function ActorDetailDrawer({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          askConfirm("Remove media", "This media file will be removed from the portfolio. Continue?",
+                          askConfirm("Remove photo", "This photo will be removed from the attachment gallery. Continue?",
                             () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)));
                         }}
                         aria-label="Remove media"
@@ -1932,110 +1445,27 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Show & Role (unified Home + Swing records) ── */}
+          {/* ── Show & Role (Home + Swing records) ─────────────────────
+              0522 spec: actor-side "Add" entry removed. New assignments come
+              from Excel import or from the show/role page; here we only
+              display and allow setting individual records to Inactive. */}
           <div className="border-b border-gray-100">
             <SectionHeader
               title="Show & Role" count={activeShowRoleCount}
-              editing={addingShowRole} collapsed={collapsed.showRole}
+              editing={false} collapsed={collapsed.showRole}
               onToggleCollapse={() => toggle("showRole")}
-              onAdd={() => setAddingShowRole(true)} addLabel="Add"
-              onCancel={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
-              onSave={saveShowRole}
             />
             {!collapsed.showRole && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Mobile bottom sheet for adding a Show & Role */}
-                <div className="md:hidden">
-                  <BottomSheet open={addingShowRole}
-                    onClose={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
-                    title="Add Show & Role"
-                    footer={
-                      <div className="flex gap-2">
-                        <button onClick={() => { setAddingShowRole(false); setShowRoleForm({ show: "", role: "", roleType: "home" }); }}
-                          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
-                        <button onClick={saveShowRole}
-                          disabled={!showRoleForm.show || !showRoleForm.role}
-                          className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
-                      </div>
-                    }
-                  >
-                    <div className="space-y-3">
-                      <div>
-                        <label className={labelCls}>Show</label>
-                        <select value={showRoleForm.show}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, show: e.target.value, role: "" }))}
-                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
-                          <option value="">Please Choose</option>
-                          {DATA.flatMap((l) => l.shows).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelCls}>Role</label>
-                        <select value={showRoleForm.role}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, role: e.target.value }))}
-                          disabled={!showRoleForm.show}
-                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white disabled:opacity-50">
-                          <option value="">Please Choose</option>
-                          {rolesForFormShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelCls}>Role Type</label>
-                        <select value={showRoleForm.roleType}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, roleType: e.target.value as "home" | "swing" }))}
-                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
-                          <option value="home">Home</option>
-                          <option value="swing">Swing</option>
-                        </select>
-                      </div>
-                    </div>
-                  </BottomSheet>
-                </div>
-                {/* Add form — desktop inline */}
-                {addingShowRole && (
-                  <div className="hidden md:block p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div><label className={labelCls}>Show</label>
-                        <select value={showRoleForm.show}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, show: e.target.value, role: "" }))}
-                          className={inputCls + " bg-white"}>
-                          <option value="">Please Choose</option>
-                          {DATA.flatMap((l) => l.shows).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        </select>
-                      </div>
-                      <div><label className={labelCls}>Role</label>
-                        <select value={showRoleForm.role}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, role: e.target.value }))}
-                          disabled={!showRoleForm.show}
-                          className={inputCls + " bg-white disabled:opacity-50"}>
-                          <option value="">Please Choose</option>
-                          {rolesForFormShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-                        </select>
-                      </div>
-                      <div><label className={labelCls}>Role Type</label>
-                        <select value={showRoleForm.roleType}
-                          onChange={(e) => setShowRoleForm((f) => ({ ...f, roleType: e.target.value as "home" | "swing" }))}
-                          className={inputCls + " bg-white"}>
-                          <option value="home">Home</option>
-                          <option value="swing">Swing</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {/* Empty state */}
-                {showRoleRecords.length === 0 && !addingShowRole && (
+                {showRoleRecords.length === 0 ? (
                   <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
-                )}
-                {/* Column header */}
-                {showRoleRecords.length > 0 && (
+                ) : (
                   <div className="hidden sm:grid grid-cols-[1fr_110px_60px] gap-2 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
                     <span>Show &amp; Role</span>
                     <span>Last Modified</span>
                     <span></span>
                   </div>
                 )}
-                {/* Sorted: home first, swing by date desc */}
                 {[...showRoleRecords]
                   .sort((a, b) => {
                     if (a.roleType === "home" && b.roleType !== "home") return -1;
@@ -2066,11 +1496,11 @@ function ActorDetailDrawer({
                           <div className="flex items-center justify-between sm:contents">
                             <span className="text-xs text-gray-400">{rec.date}</span>
                             {inactive ? (
-                              <span className="text-xs text-gray-300">Removed</span>
+                              <span className="text-xs text-gray-300">Inactive</span>
                             ) : (
-                              <button onClick={() => askConfirm("Remove show & role", `Remove ${rec.show} / ${rec.role}?`,
+                              <button onClick={() => askConfirm("Set inactive", `Set ${rec.show} / ${rec.role} as inactive?`,
                                 () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Remove</button>
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Set inactive</button>
                             )}
                           </div>
                         </div>
@@ -2081,118 +1511,21 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Measurement ── */}
-          <div className="border-b border-gray-100">
-            <MeasurementSection
-              meas={meas} measDraft={measDraft} setMeasDraft={setMeasDraft}
-              editing={editingMeas} collapsed={collapsed.measurements}
-              onToggleCollapse={() => toggle("measurements")}
-              onEdit={() => { setMeasDraft({ ...meas }); setEditingMeas(true); }}
-              onSave={saveMeas}
-              onCancel={() => setEditingMeas(false)}
-              onUpload={() => setMeasImportOpen(true)}
-            />
-          </div>
-
-          {/* ── Event Experience ── */}
+          {/* ── Event Experience ─────────────────────────────────────
+              0522 spec: add flow is Excel import (SSO / event code / role code).
+              The drawer is read-only for adds; individual records can be
+              set to Inactive. */}
           <div className="border-b border-gray-100">
             <SectionHeader
               title="Event Experience" count={activeEventCount}
-              editing={addingEvent} collapsed={collapsed.event}
+              editing={false} collapsed={collapsed.event}
               onToggleCollapse={() => toggle("event")}
-              onAdd={() => setAddingEvent(true)} addLabel="Add"
-              onCancel={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
-              onSave={saveEvent}
             />
             {!collapsed.event && (
               <div className="px-5 pb-4 space-y-2">
-                {/* Mobile bottom sheet for adding Event Experience */}
-                <div className="md:hidden">
-                  <BottomSheet open={addingEvent}
-                    onClose={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
-                    title="Add Event Experience"
-                    footer={
-                      <div className="flex gap-2">
-                        <button onClick={() => { setAddingEvent(false); setEventForm({ eventName: "", roleName: "", startDate: "", endDate: "" }); }}
-                          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
-                        <button onClick={saveEvent}
-                          disabled={!eventForm.eventName || !eventForm.roleName || !eventForm.startDate}
-                          className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
-                      </div>
-                    }
-                  >
-                    <div className="space-y-3">
-                      <div>
-                        <label className={labelCls}>Event Name</label>
-                        <select value={eventForm.eventName}
-                          onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value, roleName: "" }))}
-                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white">
-                          <option value="">Please Choose</option>
-                          {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelCls}>Role Name</label>
-                        <select value={eventForm.roleName}
-                          onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))}
-                          disabled={!eventForm.eventName}
-                          className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm bg-white disabled:opacity-50">
-                          <option value="">Please Choose</option>
-                          {eventRolesForForm.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className={labelCls}>Start Date</label>
-                          <input type="date" value={eventForm.startDate}
-                            onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))}
-                            className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className={labelCls}>End Date</label>
-                          <input type="date" value={eventForm.endDate}
-                            onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))}
-                            className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm" />
-                        </div>
-                      </div>
-                    </div>
-                  </BottomSheet>
-                </div>
-                {/* Add form — desktop inline */}
-                {addingEvent && (
-                  <div className="hidden md:block p-3 bg-brand-50 rounded-xl space-y-2 border border-brand-100">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className={labelCls}>Event Name</label>
-                        <select value={eventForm.eventName}
-                          onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value, roleName: "" }))}
-                          className={inputCls + " bg-white"}>
-                          <option value="">Please Choose</option>
-                          {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                      </div>
-                      <div><label className={labelCls}>Role Name</label>
-                        <select value={eventForm.roleName}
-                          onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))}
-                          disabled={!eventForm.eventName}
-                          className={inputCls + " bg-white disabled:opacity-50"}>
-                          <option value="">Please Choose</option>
-                          {eventRolesForForm.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className={labelCls}>Start Date</label>
-                        <input type="date" value={eventForm.startDate} onChange={(e) => setEventForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} />
-                      </div>
-                      <div><label className={labelCls}>End Date</label>
-                        <input type="date" value={eventForm.endDate} onChange={(e) => setEventForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {eventRecords.length === 0 && !addingEvent && (
+                {eventRecords.length === 0 ? (
                   <p className="text-xs text-gray-300 py-3 text-center">No event records</p>
-                )}
+                ) : null}
                 {eventRecords.map((rec) => {
                   const inactive = rec.status === "inactive";
                   return (
@@ -2206,11 +1539,11 @@ function ActorDetailDrawer({
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-xs text-gray-400">{rec.startDate}</span>
                           {inactive ? (
-                            <span className="text-xs text-gray-300">Removed</span>
+                            <span className="text-xs text-gray-300">Inactive</span>
                           ) : (
-                            <button onClick={() => askConfirm("Remove event", `Remove "${rec.eventName} & ${rec.roleName}"?`,
+                            <button onClick={() => askConfirm("Set inactive", `Set "${rec.eventName} & ${rec.roleName}" as inactive?`,
                               () => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
-                              className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors">Remove</button>
+                              className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors">Set inactive</button>
                           )}
                         </div>
                       </div>
@@ -2218,43 +1551,6 @@ function ActorDetailDrawer({
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-
-          {/* ── Attachments ── */}
-          <div className="border-b border-gray-100">
-            <input ref={attachInputRef} type="file" multiple className="hidden" onChange={handleAttachFile} />
-            <SectionHeader
-              title="Attachments" count={attachments.length}
-              editing={false} collapsed={collapsed.attachments}
-              onToggleCollapse={() => toggle("attachments")}
-              onAdd={() => attachInputRef.current?.click()} addLabel="Add"
-              mobileReadonly
-            />
-            {!collapsed.attachments && (
-              <div className="px-5 pb-4 space-y-2">
-                {attachments.length === 0 && (
-                  <p className="text-xs text-gray-300 py-3 text-center">No attachments</p>
-                )}
-                {attachments.map((att) => (
-                  <div key={att.id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50 md:cursor-default cursor-pointer active:bg-gray-100"
-                    onClick={() => {
-                      // mobile: open the file for online preview (no real URL in mock data → no-op)
-                      const url = (att as Attachment & { url?: string }).url;
-                      if (url) window.open(url, "_blank");
-                    }}
-                  >
-                    <Paperclip className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <span className="text-xs text-gray-700 flex-1 truncate">{att.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); askConfirm("Remove attachment", `Remove "${att.name}"?`,
-                      () => setAttachments((p) => p.filter((a) => a.id !== att.id))); }}
-                      className="hidden md:inline-flex text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -2270,49 +1566,32 @@ function ActorDetailDrawer({
   );
 }
 
-// ── Roster Import Modal ────────────────────────────────────────────────────
+// ── Excel Import Modal (shared) ────────────────────────────────────────────
+// Used by Performer onboarding, Event Experience, Skill, Swing Show & Role.
+// PC-only per the 0522 spec — mobile users still see the modal but the parent
+// gates the entry point on a desktop viewport.
 
-const IMPORT_COLUMNS: { key: string; required: boolean }[] = [
-  { key: "SSO", required: true },
-  { key: "Full Name", required: true },
-  { key: "Status", required: true },
-  { key: "Nationality", required: false },
-  { key: "Gender", required: false },
-  { key: "Height (cm)", required: false },
-  { key: "Weight (kg)", required: false },
-  { key: "Offer Show", required: false },
-  { key: "Offer Role", required: false },
-  { key: "Home Show", required: false },
-  { key: "Home Role", required: false },
-  { key: "Contract Start Date", required: false },
-  { key: "Contract End Date", required: false },
-  { key: "Employee Class", required: false },
-  { key: "ID/Passport Valid End Date", required: false },
-];
+interface ImportColumn { key: string; required: boolean; hint?: string }
 
-const IMPORT_STATUS_COL = IMPORT_COLUMNS.findIndex((c) => c.key === "Status");
-const STATUS_TOKEN_SET = new Set<string>(ACTOR_STATUSES.map((s) => s.toLowerCase()));
-
-function RosterImportModal({ onClose }: { onClose: () => void }) {
+function ExcelImportModal({ title, subtitle, columns, sample, hint, fileBaseName, onClose, validateRow, onImport }: {
+  title: string; subtitle: string;
+  columns: ImportColumn[]; sample: string[];
+  hint?: React.ReactNode;
+  fileBaseName: string;
+  onClose: () => void;
+  validateRow?: (row: string[]) => string | null; // returns error message, or null if row is valid
+  onImport?: (rows: string[][]) => void; // committed rows (excluding header)
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<string[][]>([]);
 
   function downloadTemplate() {
-    const header = IMPORT_COLUMNS.map((c) => c.required ? `${c.key} *` : c.key);
-    const sample = [
-      "20017233", "Arthur William Bennett", "Active", "UK", "Male", "178", "72",
-      "UOP", "Dragon Dance", "UOP", "Dragon Dance",
-      "2024-01-15", "2025-12-31", "Foreign Foreign", "2027-06-30",
-    ];
-    // Second row with a note listing allowed Status tokens so importers can copy.
-    const statusNote = [
-      "", "", `Allowed: ${ACTOR_STATUSES.join(" / ")}`,
-    ];
-    const ws = XLSX.utils.aoa_to_sheet([header, sample, statusNote]);
+    const header = columns.map((c) => c.required ? `${c.key} *` : c.key);
+    const ws = XLSX.utils.aoa_to_sheet([header, sample]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Performers");
-    XLSX.writeFile(wb, "performer_import_template.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, fileBaseName);
+    XLSX.writeFile(wb, `${fileBaseName}_template.xlsx`);
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -2325,25 +1604,25 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
       const wb = XLSX.read(data, { type: "binary" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 }) as string[][];
-      setPreview(rows.slice(0, 6));
+      setPreview(rows.slice(0, 8));
     };
     reader.readAsBinaryString(f);
     e.target.value = "";
   }
 
   const dataRows = preview.slice(1);
-  // SSO at col 0, Full Name at col 1, Status at IMPORT_STATUS_COL; flag rows with either missing or with invalid Status
   const invalidRowIdx = new Set<number>();
-  const invalidStatusIdx = new Set<number>();
+  let firstError = "";
   dataRows.forEach((row, i) => {
-    const sso = String(row[0] ?? "").trim();
-    const name = String(row[1] ?? "").trim();
-    const status = String(row[IMPORT_STATUS_COL] ?? "").trim();
-    const rowIdx = i + 1; // +1 because preview[0] is header
-    if (!sso || !name) invalidRowIdx.add(rowIdx);
-    if (!status || !STATUS_TOKEN_SET.has(status.toLowerCase())) {
-      invalidStatusIdx.add(rowIdx);
-      invalidRowIdx.add(rowIdx);
+    let err: string | null = null;
+    columns.forEach((c, j) => {
+      if (err) return;
+      if (c.required && !String(row[j] ?? "").trim()) err = `Missing ${c.key}`;
+    });
+    if (!err && validateRow) err = validateRow(row);
+    if (err) {
+      invalidRowIdx.add(i + 1);
+      if (!firstError) firstError = err;
     }
   });
   const hasInvalid = invalidRowIdx.size > 0;
@@ -2353,8 +1632,8 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
       <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Import Performers</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Upload an Excel file to bulk import performers</p>
+            <h2 className="font-semibold text-gray-900">{title}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
@@ -2364,9 +1643,8 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
             <div className="flex-1">
               <p className="text-xs font-medium text-blue-700">Download template first</p>
               <p className="text-xs text-blue-500 mt-0.5">
-                Required: <span className="text-red-500 font-semibold">SSO</span>, <span className="text-red-500 font-semibold">Full Name</span>, <span className="text-red-500 font-semibold">Status</span>.
-                Status must be one of: {ACTOR_STATUSES.join(" / ")}.
-                Rows without Home Show / Home Role go to Unassigned.
+                Required columns marked with <span className="text-red-500 font-semibold">*</span>.
+                {hint}
               </p>
             </div>
             <button onClick={downloadTemplate}
@@ -2399,26 +1677,412 @@ function RosterImportModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </tbody>
               </table>
-              {preview.length >= 6 && <p className="text-xs text-gray-400 px-3 py-2">Showing first 5 rows…</p>}
+              {preview.length >= 8 && <p className="text-xs text-gray-400 px-3 py-2">Showing first {preview.length - 1} rows…</p>}
             </div>
           )}
 
           {hasInvalid && (
             <p className="text-xs text-red-500">
-              {invalidRowIdx.size} row{invalidRowIdx.size === 1 ? "" : "s"} highlighted above need fixes:
-              {" "}missing/invalid SSO, Full Name{invalidStatusIdx.size > 0 ? `, or Status (${invalidStatusIdx.size} row${invalidStatusIdx.size === 1 ? "" : "s"})` : ""}. Fix before importing.
+              {invalidRowIdx.size} row{invalidRowIdx.size === 1 ? "" : "s"} highlighted above need fixes ({firstError}). Fix before importing.
             </p>
           )}
         </div>
         <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
           <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} disabled={!fileName || hasInvalid}
+          <button onClick={() => { onImport?.(dataRows); onClose(); }} disabled={!fileName || hasInvalid}
             className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Import {dataRows.length > 0 ? `${dataRows.length} Performer${dataRows.length === 1 ? "" : "s"}` : ""}
+            Import {dataRows.length > 0 ? `${dataRows.length} row${dataRows.length === 1 ? "" : "s"}` : ""}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Roster Import (onboarding) ────────────────────────────────────────────
+// 0522 spec: SSO is the primary key. The system handles three scenarios at
+// commit time (we describe them in the hint; the actual conflict-resolution
+// dialog is mocked at parent level since this is a demo):
+//  • SSO not found → create.
+//  • SSO exists & Active → prompt to overwrite changed fields, keep the rest.
+//  • SSO exists & Inactive → prompt to reactivate + overwrite.
+const PERFORMER_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: false },
+  { key: "Full Name", required: true },
+  { key: "Phone (if no SSO)", required: false },
+  { key: "Nationality", required: false },
+  { key: "Gender", required: false },
+  { key: "Height (cm)", required: false },
+  { key: "Weight (kg)", required: false },
+  { key: "Home Show", required: false },
+  { key: "Home Role", required: false },
+];
+
+function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommit?: (rows: string[][]) => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Performers"
+      subtitle="Onboard performers in bulk (PC only)"
+      columns={PERFORMER_IMPORT_COLUMNS}
+      sample={["20017233", "Arthur William Bennett", "", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
+      fileBaseName="performer_onboarding"
+      hint={<>{" "}Override fields: gender, nationality, height, weight, home show, home role. Leave SSO blank if not yet issued — fill the phone number column instead; the row appears under <span className="font-semibold">SSO Binding</span> until bound.</>}
+      validateRow={(row) => {
+        const sso = String(row[0] ?? "").trim();
+        const phone = String(row[2] ?? "").trim();
+        if (!sso && !phone) return "Either SSO or phone is required";
+        if (sso && !/^\d{8}$/.test(sso)) return "SSO must be 8 digits";
+        return null;
+      }}
+      onImport={(rows) => onCommit?.(rows)}
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Event Experience Import (per 0522 spec: SSO / event code / role code) ──
+const EVENT_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Event Code", required: true },
+  { key: "Role Code", required: true },
+];
+
+function EventImportModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Event Experience"
+      subtitle="Add event experience records in bulk (PC only)"
+      columns={EVENT_IMPORT_COLUMNS}
+      sample={["20017233", "EVT-2025-HUAPI", "ROLE-HEIBAI"]}
+      fileBaseName="event_experience"
+      hint={<>{" "}One SSO can appear on multiple rows. Duplicate event code per SSO is de-duped on import.</>}
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Skill Import (per 0522 spec: SSO / skillset type / skill) ──
+const SKILL_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Skillset Type", required: true },
+  { key: "Skill", required: true },
+];
+
+function SkillImportModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Skills"
+      subtitle="Add performer skills in bulk (PC only)"
+      columns={SKILL_IMPORT_COLUMNS}
+      sample={["20017233", "舞蹈", "拉丁舞"]}
+      fileBaseName="skill"
+      hint={<>{" "}One SSO can appear on multiple rows. Duplicate (skillset type + skill) per SSO is de-duped on import.</>}
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Swing Show & Role Import (per 0522 spec: SSO / show name / role name) ──
+const SWING_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Show Name", required: true },
+  { key: "Role Name", required: true },
+];
+
+function SwingImportModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Swing Show & Role"
+      subtitle="Assign swing shows in bulk (PC only)"
+      columns={SWING_IMPORT_COLUMNS}
+      sample={["20017233", "UOP", "Dragon Dance"]}
+      fileBaseName="swing_show_role"
+      hint={<>{" "}One SSO can appear on multiple rows. Duplicate (show + role) per SSO is de-duped. Type defaults to <span className="font-semibold">swing</span>.</>}
+      onClose={onClose}
+    />
+  );
+}
+
+// ── SSO Binding ────────────────────────────────────────────────────────────
+// Per 0522 spec: performers imported without an SSO appear here with their
+// placeholder phone number. The user fills in the real SSO and binds the row.
+// The system lists everyone whose ssoId isn't the standard 8-digit "2…" form.
+function SsoBindingModal({ onClose }: { onClose: () => void }) {
+  const candidates = useMemo(
+    () => PERFORMERS.filter((p) => !/^2\d{7}$/.test(p.ssoId)).slice(0, 12),
+    [],
+  );
+  // 0522 uses a transient mapping — actor id → user-entered SSO. The doc says
+  // a confirmed bind "replaces" the phone with the SSO; here we just track
+  // the typed value and confirm.
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const [bound, setBound] = useState<Record<number, string>>({});
+
+  function commit(id: number) {
+    const v = (draft[id] ?? "").trim();
+    if (!/^2\d{7}$/.test(v)) return;
+    setBound((p) => ({ ...p, [id]: v }));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Bind SSO</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Imported performers awaiting an SSO. Phone number is the placeholder; SSO replaces it once bound.</p>
+          </div>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">
+          {candidates.length === 0 ? (
+            <p className="text-sm text-gray-300 py-8 text-center">No performers waiting for an SSO.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-2 py-2">Name</th>
+                  <th className="text-left px-2 py-2">Phone (placeholder)</th>
+                  <th className="text-left px-2 py-2">Imported</th>
+                  <th className="text-left px-2 py-2">SSO</th>
+                  <th className="px-2 py-2 w-20"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {candidates.map((c) => {
+                  const isBound = !!bound[c.id];
+                  const importedDays = (dHash(c.id) % 20) + 1;
+                  return (
+                    <tr key={c.id} className={isBound ? "bg-emerald-50/40" : ""}>
+                      <td className="px-2 py-2 text-gray-800">{c.name}</td>
+                      <td className="px-2 py-2 font-mono text-gray-500">{c.ssoId}</td>
+                      <td className="px-2 py-2 text-gray-400">{importedDays}d ago</td>
+                      <td className="px-2 py-2">
+                        <input
+                          value={isBound ? bound[c.id] : (draft[c.id] ?? "")}
+                          onChange={(e) => setDraft((p) => ({ ...p, [c.id]: e.target.value }))}
+                          disabled={isBound}
+                          placeholder="2xxxxxxx"
+                          className="h-7 px-2 border border-gray-200 rounded text-xs font-mono w-28 focus:outline-none focus:ring-1 focus:ring-brand-200 disabled:bg-gray-50 disabled:text-gray-400"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        {isBound ? (
+                          <span className="text-[11px] text-emerald-600 font-medium">Bound</span>
+                        ) : (
+                          <button onClick={() => commit(c.id)}
+                            disabled={!/^2\d{7}$/.test(draft[c.id] ?? "")}
+                            className="text-[11px] px-2 py-1 bg-brand-500 text-white rounded hover:bg-brand-600 disabled:opacity-40 font-medium">
+                            Bind
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* falls back to a row count so the user can see the placeholder index — Use placeholder count to remind we render only the first 12 */}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch Photo Upload (0522 spec: filename = SSO; auto-match) ───────────────
+function BatchPhotoUploadModal({ onClose }: { onClose: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  type PhotoPick = { name: string; ssoId: string; matched: Actor | null };
+  const [picks, setPicks] = useState<PhotoPick[]>([]);
+
+  function ssoFromFilename(name: string): string {
+    const base = name.replace(/\.[^.]+$/, "");
+    const m = base.match(/^(\d{8})/) ?? base.match(/(\d{8})/);
+    return m ? m[1] : "";
+  }
+
+  function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files) return;
+    const next: PhotoPick[] = Array.from(files).map((f) => {
+      const sso = ssoFromFilename(f.name);
+      const match = sso ? PERFORMERS.find((p) => p.ssoId === sso) ?? null : null;
+      return { name: f.name, ssoId: sso, matched: match };
+    });
+    setPicks((p) => [...p, ...next]);
+    e.target.value = "";
+  }
+
+  const matched = picks.filter((p) => p.matched).length;
+  const unmatched = picks.length - matched;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Batch Photo Upload</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Photos are matched to performers by SSO in the filename (e.g. <span className="font-mono">20017233.jpg</span>).</p>
+          </div>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-3 overflow-y-auto">
+          <input ref={fileRef} type="file" multiple accept="image/*" className="hidden" onChange={handlePick} />
+          <div onClick={() => fileRef.current?.click()}
+            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
+            <Upload className="w-6 h-6" />
+            <span className="text-sm font-medium">{picks.length === 0 ? "Click to select photo files" : "Add more photos"}</span>
+          </div>
+          {picks.length > 0 && (
+            <>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full">Matched {matched}</span>
+                {unmatched > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-full">No match {unmatched}</span>}
+              </div>
+              <div className="overflow-auto rounded-xl border border-gray-100 max-h-72">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 text-[10px] uppercase text-gray-400">
+                    <tr>
+                      <th className="text-left px-3 py-2">File</th>
+                      <th className="text-left px-3 py-2">SSO</th>
+                      <th className="text-left px-3 py-2">Matched performer</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {picks.map((p, i) => (
+                      <tr key={i} className={p.matched ? "" : "bg-red-50 text-red-700"}>
+                        <td className="px-3 py-2 truncate max-w-[180px]" title={p.name}>{p.name}</td>
+                        <td className="px-3 py-2 font-mono text-gray-500">{p.ssoId || "—"}</td>
+                        <td className="px-3 py-2 text-gray-700">{p.matched ? p.matched.name : "No performer with this SSO"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={onClose} disabled={matched === 0}
+            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            Upload {matched > 0 ? `${matched} photo${matched === 1 ? "" : "s"}` : ""}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Assign Performers Dialog ───────────────────────────────────────────────
+// 0522 spec inverts the assign direction: pick the show/role first, then
+// browse and assign performers from a pool. Triggered from the show/role
+// page's toolbar.
+function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit }: {
+  show: Show; role: Role;
+  defaultRoleType: "home" | "swing";
+  onClose: () => void;
+  onSubmit: (ids: number[], castType: "home" | "swing") => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [castType, setCastType] = useState<"home" | "swing">(defaultRoleType);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  // Pool: unassigned performers + those whose home show ≠ this show. Inactive
+  // performers are filtered out since they shouldn't be re-cast.
+  const pool = useMemo(() => {
+    const list = PERFORMERS.filter((p) => (p.status ?? "Active") === "Active");
+    if (!query) return list.slice(0, 60);
+    const lq = query.toLowerCase();
+    return list.filter((p) => p.name.toLowerCase().includes(lq) || p.ssoId.includes(query)).slice(0, 60);
+  }, [query]);
+
+  function togglePick(id: number) {
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  const title = `Assign Performers — ${show.name} / ${role.name}`;
+  const body = (
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search name or SSO"
+          className="flex-1 h-9 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200" />
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+          {(["home", "swing"] as const).map((t) => (
+            <button key={t} onClick={() => setCastType(t)}
+              className={`flex-1 px-3 h-7 rounded-md text-xs font-medium ${castType === t ? (t === "home" ? "bg-brand-500 text-white" : "bg-amber-400 text-amber-900") : "text-gray-500"}`}>
+              {t === "home" ? "Home Cast" : "Swing Cast"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="border border-gray-100 rounded-xl max-h-72 overflow-auto">
+        {pool.length === 0 ? (
+          <p className="text-xs text-gray-300 py-6 text-center">No performers match</p>
+        ) : (
+          <ul className="divide-y divide-gray-50">
+            {pool.map((p) => {
+              const on = picked.has(p.id);
+              return (
+                <li key={p.id} className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${on ? "bg-brand-50/40" : "hover:bg-gray-50"}`}
+                  onClick={() => togglePick(p.id)}>
+                  <input type="checkbox" readOnly checked={on} className="accent-brand-500 w-3.5 h-3.5" />
+                  <img src={p.photoUrl} alt="" className="w-7 h-7 rounded-full object-cover object-top" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-gray-800 truncate">{p.name}</p>
+                    <p className="text-[10px] text-gray-400 font-mono">{p.ssoId}</p>
+                  </div>
+                  <span className="text-[10px] text-gray-400 truncate">{p.homeShow ? `${p.homeShow}/${p.homeRole}` : "Unassigned"}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-400">Selected {picked.size} performer{picked.size === 1 ? "" : "s"}.</p>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="hidden md:flex fixed inset-0 z-50 items-center justify-center bg-black/40 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900 text-sm sm:text-base">{title}</h2>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">{body}</div>
+          <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+            <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={() => onSubmit(Array.from(picked), castType)} disabled={picked.size === 0}
+              className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">
+              Assign {picked.size > 0 ? `(${picked.size})` : ""}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="md:hidden">
+        <BottomSheet open onClose={onClose} title={title}
+          footer={
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+              <button onClick={() => onSubmit(Array.from(picked), castType)} disabled={picked.size === 0}
+                className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">
+                Assign {picked.size > 0 ? `(${picked.size})` : ""}
+              </button>
+            </div>
+          }
+        >{body}</BottomSheet>
+      </div>
+    </>
   );
 }
 
@@ -2608,10 +2272,12 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkS
 
 // ── Card View ──────────────────────────────────────────────────────────────
 
-function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, showUnassigned, onOpenActor }: {
+function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onAssignPerformers, showUnassigned, onOpenActor }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
-  onCast: (ids: number[]) => void; showUnassigned: boolean;
+  onCast: (ids: number[]) => void;
+  onAssignPerformers: () => void;
+  showUnassigned: boolean;
   onOpenActor: (id: number) => void;
 }) {
   const [page, setPage] = useState(1);
@@ -2622,6 +2288,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   const { statusOf, setStatusFor } = useActorStatus();
   const activeFilterCount = countActiveFilters(filters);
   const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
+  const [offboardIds, setOffboardIds] = useState<number[] | null>(null);
 
   function updateFilters(next: Filters) {
     setFilters(next);
@@ -2645,6 +2312,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
   }
   function applyStatusPick(s: ActorStatus) {
     if (!markMenu) return;
+    if (s === "Inactive") {
+      // 0522 spec: offboarding requires a reason before flipping to Inactive.
+      setOffboardIds(markMenu.ids);
+      return;
+    }
     setStatusFor(markMenu.ids, s);
     if (!markMenu.single) setSelectedIds(new Set());
   }
@@ -2731,6 +2403,15 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
             count={markMenu.single ? undefined : markMenu.ids.length}
             onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
         })()}
+        {offboardIds && (
+          <OffboardingDialog count={offboardIds.length}
+            onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
+            onConfirm={() => {
+              setStatusFor(offboardIds, "Inactive");
+              if (!markMenu?.single) setSelectedIds(new Set());
+              setMarkMenu(null);
+            }} />
+        )}
       </div>
     );
   }
@@ -2774,9 +2455,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              <button onClick={() => onCast(Array.from(selectedIds))}
+              {/* 0522 spec: primary entry is "Assign Performers" — start from
+                  the current show/role and pick performers to add. With cards
+                  pre-selected the same button reassigns them. */}
+              <button onClick={() => selectedIds.size > 0 ? onCast(Array.from(selectedIds)) : onAssignPerformers()}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm">
-                <Users className="w-4 h-4" />{selectedIds.size > 0 ? `Assign Role (${selectedIds.size})` : "Assign Cast"}
+                <Users className="w-4 h-4" />{selectedIds.size > 0 ? `Reassign (${selectedIds.size})` : "Assign Performers"}
               </button>
             </div>
           </div>
@@ -2863,13 +2547,22 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, sho
           count={markMenu.single ? undefined : markMenu.ids.length}
           onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
       })()}
+      {offboardIds && (
+        <OffboardingDialog count={offboardIds.length}
+          onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
+          onConfirm={() => {
+            setStatusFor(offboardIds, "Inactive");
+            if (!markMenu?.single) setSelectedIds(new Set());
+            setMarkMenu(null);
+          }} />
+      )}
     </div>
   );
 }
 
 // ── Roster View (List) ─────────────────────────────────────────────────────
 
-type SortKey = "height" | "weight" | "contractEndDate" | null;
+type SortKey = "height" | "weight" | null;
 type SortDir = "asc" | "desc";
 
 function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: SortKey; sortDir: SortDir; onSort: (k: SortKey) => void }) {
@@ -2881,8 +2574,13 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
   );
 }
 
-function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
-  onImport: () => void;
+function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onBindSso, onBatchPhotos, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
+  onImportPerformers: () => void;
+  onImportEvents: () => void;
+  onImportSkills: () => void;
+  onImportSwing: () => void;
+  onBindSso: () => void;
+  onBatchPhotos: () => void;
   selectedShow: Show | null; selectedRole: Role | null; showUnassigned: boolean;
   onOpenActor: (id: number) => void;
 }) {
@@ -2895,8 +2593,11 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const { statusOf, setStatusFor } = useActorStatus();
   const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
+  const [offboardIds, setOffboardIds] = useState<number[] | null>(null);
 
   const activeFilterCount = countActiveFilters(filters);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const offboardAvailable = selectedIds.size > 0;
 
   function openRowStatusMenu(id: number, anchor: { top: number; left: number }) {
     setMarkMenu({ ids: [id], anchor, single: true });
@@ -2907,6 +2608,10 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
   }
   function applyStatusPick(s: ActorStatus) {
     if (!markMenu) return;
+    if (s === "Inactive") {
+      setOffboardIds(markMenu.ids);
+      return;
+    }
     setStatusFor(markMenu.ids, s);
     if (!markMenu.single) setSelectedIds(new Set());
   }
@@ -2942,8 +2647,8 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
     return [...filtered].sort((a, b) => {
-      const av = sortKey === "contractEndDate" ? (a.contractEndDate ?? "") : (a[sortKey] ?? 0);
-      const bv = sortKey === "contractEndDate" ? (b.contractEndDate ?? "") : (b[sortKey] ?? 0);
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -2991,7 +2696,7 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
           {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
         </button>
         <span className="text-xs text-gray-400">{sorted.length} performers</span>
-        {selectedIds.size > 0 && (
+        {offboardAvailable && (
           <>
             <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
             <button onClick={(e) => {
@@ -3004,9 +2709,45 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
             <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
           </>
         )}
-        <button onClick={onImport} className="ml-auto h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
-          <Upload className="w-3.5 h-3.5" />Upload
-        </button>
+        {/* Imports & ops menu — PC only per 0522 spec ("仅PC端"). */}
+        <div className="ml-auto relative hidden md:block">
+          <button onClick={() => setActionMenuOpen((p) => !p)}
+            className="h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
+            <Upload className="w-3.5 h-3.5" />Data Ops <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          {actionMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setActionMenuOpen(false)} />
+              <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
+                <button onClick={() => { setActionMenuOpen(false); onImportPerformers(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
+                </button>
+                <button onClick={() => { setActionMenuOpen(false); onImportEvents(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
+                </button>
+                <button onClick={() => { setActionMenuOpen(false); onImportSkills(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
+                </button>
+                <button onClick={() => { setActionMenuOpen(false); onImportSwing(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button onClick={() => { setActionMenuOpen(false); onBindSso(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Pencil className="w-3.5 h-3.5 text-gray-400" />Bind SSO
+                </button>
+                <button onClick={() => { setActionMenuOpen(false); onBatchPhotos(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                  <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {showFilter && (
@@ -3059,10 +2800,10 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
                 <span>Height <span className="text-gray-700 font-medium">{p.height}</span></span>
+                <span>Weight <span className="text-gray-700 font-medium">{p.weight}</span></span>
                 <span className="truncate">
                   {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-700 font-medium">{p.homeRole}</span></> : "—"}
                 </span>
-                <span>End <span className="text-gray-700 font-medium">{p.contractEndDate ?? "—"}</span></span>
               </div>
               <div className="mt-1.5">
                 <button onClick={(e) => { e.stopPropagation(); openRowStatusMenu(p.id, { top: 0, left: 0 }); }}
@@ -3096,10 +2837,10 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
                 Height <SortBtn col="height" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
-              <th className="text-left px-4 py-3 font-semibold">Current Home Show &amp; Role</th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
-                Contract end date <SortBtn col="contractEndDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                Weight <SortBtn col="weight" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </th>
+              <th className="text-left px-4 py-3 font-semibold">Home Show &amp; Role</th>
               <th className="text-left px-4 py-3 font-semibold">Status</th>
               <th className="text-left px-4 py-3 font-semibold">Action</th>
             </tr>
@@ -3127,10 +2868,10 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
                 <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.flag} {p.nationality}</td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.height}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.weight}</td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                   {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-800">{p.homeRole}</span></> : "—"}
                 </td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{p.contractEndDate ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <button onClick={(e) => {
                     const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
@@ -3157,6 +2898,15 @@ function RosterView({ onImport, selectedShow, selectedRole, showUnassigned, onOp
           count={markMenu.single ? undefined : markMenu.ids.length}
           onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
       })()}
+      {offboardIds && (
+        <OffboardingDialog count={offboardIds.length}
+          onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
+          onConfirm={() => {
+            setStatusFor(offboardIds, "Inactive");
+            if (!markMenu?.single) setSelectedIds(new Set());
+            setMarkMenu(null);
+          }} />
+      )}
     </div>
   );
 }
@@ -3318,7 +3068,9 @@ export default function CastingBookPage() {
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
   const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [assignPerformersOpen, setAssignPerformersOpen] = useState(false);
+  // Excel imports + auxiliary ops (PC-only flows per 0522 spec)
+  const [importModal, setImportModal] = useState<null | "performers" | "events" | "skills" | "swing" | "sso" | "photos">(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
 
@@ -3459,10 +3211,21 @@ export default function CastingBookPage() {
                 defaultRole: selectedRole?.name,
                 defaultRoleType: castTab,
               })}
+              onAssignPerformers={() => setAssignPerformersOpen(true)}
               showUnassigned={showUnassigned}
               onOpenActor={openActor} />
           )}
-          {viewMode === "roster" && <RosterView onImport={() => setShowImportModal(true)} selectedShow={selectedShow} selectedRole={selectedRole} showUnassigned={showUnassigned} onOpenActor={openActor} />}
+          {viewMode === "roster" && (
+            <RosterView
+              onImportPerformers={() => setImportModal("performers")}
+              onImportEvents={() => setImportModal("events")}
+              onImportSkills={() => setImportModal("skills")}
+              onImportSwing={() => setImportModal("swing")}
+              onBindSso={() => setImportModal("sso")}
+              onBatchPhotos={() => setImportModal("photos")}
+              selectedShow={selectedShow} selectedRole={selectedRole}
+              showUnassigned={showUnassigned} onOpenActor={openActor} />
+          )}
         </div>
       </div>
 
@@ -3483,7 +3246,21 @@ export default function CastingBookPage() {
           onSubmit={() => setAssignTarget(null)}
         />
       )}
-      {showImportModal && <RosterImportModal onClose={() => setShowImportModal(false)} />}
+      {assignPerformersOpen && selectedShow && selectedRole && (
+        <AssignPerformersDialog
+          show={selectedShow}
+          role={selectedRole}
+          defaultRoleType={castTab}
+          onClose={() => setAssignPerformersOpen(false)}
+          onSubmit={() => setAssignPerformersOpen(false)}
+        />
+      )}
+      {importModal === "performers" && <RosterImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "events" && <EventImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "skills" && <SkillImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "swing" && <SwingImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "sso" && <SsoBindingModal onClose={() => setImportModal(null)} />}
+      {importModal === "photos" && <BatchPhotoUploadModal onClose={() => setImportModal(null)} />}
     </div>
     </StatusCtx.Provider>
   );
