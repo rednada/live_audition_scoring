@@ -1348,7 +1348,7 @@ function ActorDetailDrawer({
             <div className="px-2 py-2.5 text-center border-r border-gray-100">
               <p className="text-[10px] text-gray-400 mb-0.5">Gender</p>
               {editingBasicInfo ? (
-                <select value={basicDraft.gender} onChange={(e) => setBasicDraft((d) => ({ ...d, gender: e.target.value }))}
+                <select value={basicDraft.gender} onChange={(e) => setBasicDraft((d) => ({ ...d, gender: e.target.value as "men" | "women" }))}
                   className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-brand-200">
                   <option value="men">Male</option>
                   <option value="women">Female</option>
