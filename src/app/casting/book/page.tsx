@@ -491,6 +491,20 @@ function findActorById(id: number): Actor | null {
   return null;
 }
 
+const ALL_ACTORS_BY_SSO: Actor[] = (() => {
+  const map = new Map<number, Actor>();
+  PERFORMERS.forEach((p) => map.set(p.id, p));
+  for (const land of DATA) {
+    for (const show of land.shows) {
+      for (const role of show.roles) {
+        role.homeActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
+        role.swingActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.ssoId.localeCompare(b.ssoId));
+})();
+
 // ── Shared: Paginator ─────────────────────────────────────────────────────
 
 function Paginator({ page, totalPages, pageSize, pageSizeOptions, totalItems, onPageChange, onPageSizeChange }: {
@@ -1001,6 +1015,44 @@ function ActorDetailDrawer({
   // Per 0522 spec, add flow is now Excel import; keep removal here.
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
 
+  const [addingShowRole, setAddingShowRole] = useState(false);
+  const [showRoleForm, setShowRoleForm] = useState({ show: "", role: "", roleType: "home" as "home" | "swing" });
+  const showRoleFormRoles = ALL_SHOWS.find((s) => s.name === showRoleForm.show)?.roles ?? [];
+
+  function saveShowRole() {
+    if (!showRoleForm.show || !showRoleForm.role) { setAddingShowRole(false); return; }
+    setShowRoleRecords((p) => [...p, {
+      id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role,
+      roleType: showRoleForm.roleType, date: new Date().toISOString().split("T")[0], status: "active",
+    }]);
+    setShowRoleForm({ show: "", role: "", roleType: "home" });
+    setAddingShowRole(false);
+  }
+
+  function cancelShowRole() {
+    setShowRoleForm({ show: "", role: "", roleType: "home" });
+    setAddingShowRole(false);
+  }
+
+  const [addingEvent, setAddingEvent] = useState(false);
+  const [eventForm, setEventForm] = useState({ eventName: "", roleName: "" });
+  const eventFormRoles = rolesForEvent(eventForm.eventName);
+
+  function saveEvent() {
+    if (!eventForm.eventName || !eventForm.roleName) { setAddingEvent(false); return; }
+    setEventRecords((p) => [...p, {
+      id: `ev-${Date.now()}`, eventName: eventForm.eventName, roleName: eventForm.roleName,
+      startDate: "", endDate: "", status: "active",
+    }]);
+    setEventForm({ eventName: "", roleName: "" });
+    setAddingEvent(false);
+  }
+
+  function cancelEvent() {
+    setEventForm({ eventName: "", roleName: "" });
+    setAddingEvent(false);
+  }
+
   const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300";
   const labelCls = "block text-xs text-gray-400 mb-1";
 
@@ -1190,10 +1242,10 @@ function ActorDetailDrawer({
         </div>
 
         {/* Scrollable sections */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto flex flex-col">
 
-          {/* ── Skillset ── desktop section UI; on mobile, skill tags live in the card header above */}
-          <div className="md:border-b md:border-gray-100">
+          {/* ── Skillset ── */}
+          <div className="md:border-b md:border-gray-100" style={{ order: 1 }}>
             <div className="hidden md:block">
               <SectionHeader
                 title="Skillset" count={skillEntries.length}
@@ -1329,8 +1381,8 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Attachment (0522 spec: merged Portfolio + Attachment → photo gallery) ── */}
-          <div className="border-b border-gray-100">
+          {/* ── Attachment ── */}
+          <div className="border-b border-gray-100" style={{ order: 4 }}>
             <input ref={portfolioInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePortfolioPick} />
             <SectionHeader
               title="Attachment" count={mediaFiles.length}
@@ -1445,27 +1497,55 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Show & Role (Home + Swing records) ─────────────────────
-              0522 spec: actor-side "Add" entry removed. New assignments come
-              from Excel import or from the show/role page; here we only
-              display and allow setting individual records to Inactive. */}
-          <div className="border-b border-gray-100">
+          {/* ── Show & Role ── */}
+          <div className="border-b border-gray-100" style={{ order: 2 }}>
             <SectionHeader
               title="Show & Role" count={activeShowRoleCount}
-              editing={false} collapsed={collapsed.showRole}
+              editing={addingShowRole} collapsed={collapsed.showRole}
               onToggleCollapse={() => toggle("showRole")}
+              onAdd={() => setAddingShowRole(true)} addLabel="Add"
+              onCancel={cancelShowRole}
+              onSave={saveShowRole}
             />
             {!collapsed.showRole && (
               <div className="px-5 pb-4 space-y-2">
-                {showRoleRecords.length === 0 ? (
-                  <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
-                ) : (
-                  <div className="hidden sm:grid grid-cols-[1fr_110px_60px] gap-2 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-                    <span>Show &amp; Role</span>
-                    <span>Last Modified</span>
-                    <span></span>
+                {addingShowRole && (
+                  <div className="p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className={labelCls}>Show</label>
+                        <select value={showRoleForm.show}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, show: e.target.value, role: "" }))}
+                          className={inputCls + " bg-white"}>
+                          <option value="">Select show</option>
+                          {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role</label>
+                        <select value={showRoleForm.role}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, role: e.target.value }))}
+                          disabled={!showRoleForm.show}
+                          className={inputCls + " bg-white disabled:opacity-50"}>
+                          <option value="">Select role</option>
+                          {showRoleFormRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Type</label>
+                        <select value={showRoleForm.roleType}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, roleType: e.target.value as "home" | "swing" }))}
+                          className={inputCls + " bg-white"}>
+                          <option value="home">Home</option>
+                          <option value="swing">Swing</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 )}
+                {showRoleRecords.length === 0 && !addingShowRole ? (
+                  <p className="text-xs text-gray-300 py-3 text-center">No show assignments</p>
+                ) : null}
                 {[...showRoleRecords]
                   .sort((a, b) => {
                     if (a.roleType === "home" && b.roleType !== "home") return -1;
@@ -1484,7 +1564,7 @@ function ActorDetailDrawer({
                       : "bg-amber-100 text-amber-700";
                     return (
                       <div key={rec.id} className={`p-3 rounded-xl border transition-opacity ${tone}`}>
-                        <div className="flex flex-col gap-1 sm:grid sm:grid-cols-[1fr_110px_60px] sm:gap-2 sm:items-center">
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${chip}`}>
                               {rec.roleType === "home" ? "Home" : "Swing"}
@@ -1493,16 +1573,13 @@ function ActorDetailDrawer({
                             <span className="text-xs text-gray-300">/</span>
                             <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
                           </div>
-                          <div className="flex items-center justify-between sm:contents">
-                            <span className="text-xs text-gray-400">{rec.date}</span>
-                            {inactive ? (
-                              <span className="text-xs text-gray-300">Inactive</span>
-                            ) : (
-                              <button onClick={() => askConfirm("Set inactive", `Set ${rec.show} / ${rec.role} as inactive?`,
-                                () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors text-left">Set inactive</button>
-                            )}
-                          </div>
+                          {inactive ? (
+                            <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
+                          ) : (
+                            <button onClick={() => askConfirm("Set inactive", `Set ${rec.show} / ${rec.role} as inactive?`,
+                              () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0">Set inactive</button>
+                          )}
                         </div>
                       </div>
                     );
@@ -1511,43 +1588,64 @@ function ActorDetailDrawer({
             )}
           </div>
 
-          {/* ── Event Experience ─────────────────────────────────────
-              0522 spec: add flow is Excel import (SSO / event code / role code).
-              The drawer is read-only for adds; individual records can be
-              set to Inactive. */}
-          <div className="border-b border-gray-100">
+          {/* ── Event Experience ── */}
+          <div className="border-b border-gray-100" style={{ order: 3 }}>
             <SectionHeader
               title="Event Experience" count={activeEventCount}
-              editing={false} collapsed={collapsed.event}
+              editing={addingEvent} collapsed={collapsed.event}
               onToggleCollapse={() => toggle("event")}
+              onAdd={() => setAddingEvent(true)} addLabel="Add"
+              onCancel={cancelEvent}
+              onSave={saveEvent}
             />
             {!collapsed.event && (
               <div className="px-5 pb-4 space-y-2">
-                {eventRecords.length === 0 ? (
+                {addingEvent && (
+                  <div className="p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className={labelCls}>Event Name</label>
+                        <select value={eventForm.eventName}
+                          onChange={(e) => setEventForm({ eventName: e.target.value, roleName: "" })}
+                          className={inputCls + " bg-white"}>
+                          <option value="">Select event</option>
+                          {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Role Name</label>
+                        <select value={eventForm.roleName}
+                          onChange={(e) => setEventForm((f) => ({ ...f, roleName: e.target.value }))}
+                          disabled={!eventForm.eventName}
+                          className={inputCls + " bg-white disabled:opacity-50"}>
+                          <option value="">Select role</option>
+                          {eventFormRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {eventRecords.length === 0 && !addingEvent ? (
                   <p className="text-xs text-gray-300 py-3 text-center">No event records</p>
                 ) : null}
                 {eventRecords.map((rec) => {
                   const inactive = rec.status === "inactive";
                   return (
                     <div key={rec.id} className={`p-3 rounded-xl border ${inactive ? "border-gray-100 opacity-40" : "border-gray-200"}`}>
-                      <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-xs font-semibold text-gray-900 truncate">{rec.eventName}</span>
                           <span className="text-xs text-gray-300 flex-shrink-0">&amp;</span>
                           <span className="text-xs font-medium text-gray-700 truncate">{rec.roleName}</span>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-gray-400">{rec.startDate}</span>
-                          {inactive ? (
-                            <span className="text-xs text-gray-300">Inactive</span>
-                          ) : (
-                            <button onClick={() => askConfirm("Set inactive", `Set "${rec.eventName} & ${rec.roleName}" as inactive?`,
-                              () => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
-                              className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors">Set inactive</button>
-                          )}
-                        </div>
+                        {inactive ? (
+                          <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
+                        ) : (
+                          <button onClick={() => askConfirm("Set inactive", `Set "${rec.eventName} & ${rec.roleName}" as inactive?`,
+                            () => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                            className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors flex-shrink-0">Set inactive</button>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-400">{rec.startDate} 至 {rec.endDate}</p>
                     </div>
                   );
                 })}
@@ -1807,21 +1905,21 @@ function SwingImportModal({ onClose }: { onClose: () => void }) {
 // Per 0522 spec: performers imported without an SSO appear here with their
 // placeholder phone number. The user fills in the real SSO and binds the row.
 // The system lists everyone whose ssoId isn't the standard 8-digit "2…" form.
-function SsoBindingModal({ onClose }: { onClose: () => void }) {
-  const candidates = useMemo(
-    () => PERFORMERS.filter((p) => !/^2\d{7}$/.test(p.ssoId)).slice(0, 12),
-    [],
-  );
-  // 0522 uses a transient mapping — actor id → user-entered SSO. The doc says
-  // a confirmed bind "replaces" the phone with the SSO; here we just track
-  // the typed value and confirm.
-  const [draft, setDraft] = useState<Record<number, string>>({});
-  const [bound, setBound] = useState<Record<number, string>>({});
+function SsoReplacementModal({ onClose }: { onClose: () => void }) {
+  const [oldSso, setOldSso] = useState("");
+  const [newSso, setNewSso] = useState("");
+  const [replacements, setReplacements] = useState<{ name: string; oldSso: string; newSso: string }[]>([]);
 
-  function commit(id: number) {
-    const v = (draft[id] ?? "").trim();
-    if (!/^2\d{7}$/.test(v)) return;
-    setBound((p) => ({ ...p, [id]: v }));
+  const matchedActor = useMemo(() => {
+    if (!/^\d{8}$/.test(oldSso)) return null;
+    return ALL_ACTORS_BY_SSO.find((a) => a.ssoId === oldSso) ?? null;
+  }, [oldSso]);
+
+  function doReplace() {
+    if (!matchedActor || !/^\d{8}$/.test(newSso) || oldSso === newSso) return;
+    setReplacements((p) => [...p, { name: matchedActor.name, oldSso, newSso }]);
+    setOldSso("");
+    setNewSso("");
   }
 
   return (
@@ -1829,60 +1927,62 @@ function SsoBindingModal({ onClose }: { onClose: () => void }) {
       <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Bind SSO</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Imported performers awaiting an SSO. Phone number is the placeholder; SSO replaces it once bound.</p>
+            <h2 className="font-semibold text-gray-900">Replace SSO</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Replace a performer&apos;s existing SSO with a new one.</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">
-          {candidates.length === 0 ? (
-            <p className="text-sm text-gray-300 py-8 text-center">No performers waiting for an SSO.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-2 py-2">Name</th>
-                  <th className="text-left px-2 py-2">Phone (placeholder)</th>
-                  <th className="text-left px-2 py-2">Imported</th>
-                  <th className="text-left px-2 py-2">SSO</th>
-                  <th className="px-2 py-2 w-20"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {candidates.map((c) => {
-                  const isBound = !!bound[c.id];
-                  const importedDays = (dHash(c.id) % 20) + 1;
-                  return (
-                    <tr key={c.id} className={isBound ? "bg-emerald-50/40" : ""}>
-                      <td className="px-2 py-2 text-gray-800">{c.name}</td>
-                      <td className="px-2 py-2 font-mono text-gray-500">{c.ssoId}</td>
-                      <td className="px-2 py-2 text-gray-400">{importedDays}d ago</td>
-                      <td className="px-2 py-2">
-                        <input
-                          value={isBound ? bound[c.id] : (draft[c.id] ?? "")}
-                          onChange={(e) => setDraft((p) => ({ ...p, [c.id]: e.target.value }))}
-                          disabled={isBound}
-                          placeholder="2xxxxxxx"
-                          className="h-7 px-2 border border-gray-200 rounded text-xs font-mono w-28 focus:outline-none focus:ring-1 focus:ring-brand-200 disabled:bg-gray-50 disabled:text-gray-400"
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        {isBound ? (
-                          <span className="text-[11px] text-emerald-600 font-medium">Bound</span>
-                        ) : (
-                          <button onClick={() => commit(c.id)}
-                            disabled={!/^2\d{7}$/.test(draft[c.id] ?? "")}
-                            className="text-[11px] px-2 py-1 bg-brand-500 text-white rounded hover:bg-brand-600 disabled:opacity-40 font-medium">
-                            Bind
-                          </button>
-                        )}
-                      </td>
+        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="flex-1 w-full sm:w-auto">
+              <label className="block text-xs text-gray-400 mb-1">Old SSO</label>
+              <input value={oldSso} onChange={(e) => setOldSso(e.target.value)}
+                placeholder="2xxxxxxx" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
+              {oldSso && /^\d{8}$/.test(oldSso) && (
+                <p className={`mt-1 text-xs ${matchedActor ? "text-emerald-600" : "text-red-500"}`}>
+                  {matchedActor ? matchedActor.name : "No performer found"}
+                </p>
+              )}
+            </div>
+            <span className="hidden sm:block text-gray-300 text-lg pb-1">&rarr;</span>
+            <div className="flex-1 w-full sm:w-auto">
+              <label className="block text-xs text-gray-400 mb-1">New SSO</label>
+              <input value={newSso} onChange={(e) => setNewSso(e.target.value)}
+                placeholder="2xxxxxxx" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
+            </div>
+            <button onClick={doReplace}
+              disabled={!matchedActor || !/^\d{8}$/.test(newSso) || oldSso === newSso}
+              className="h-9 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-40 whitespace-nowrap">
+              Replace
+            </button>
+          </div>
+
+          {replacements.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Completed Replacements</h3>
+              <div className="overflow-auto rounded-xl border border-gray-100">
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50">
+                    <tr>
+                      <th className="text-left px-3 py-2">Name</th>
+                      <th className="text-left px-3 py-2">Old SSO</th>
+                      <th className="px-2 py-2"></th>
+                      <th className="text-left px-3 py-2">New SSO</th>
                     </tr>
-                  );
-                })}
-                {/* falls back to a row count so the user can see the placeholder index — Use placeholder count to remind we render only the first 12 */}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {replacements.map((r, i) => (
+                      <tr key={i} className="bg-emerald-50/40">
+                        <td className="px-3 py-2 text-gray-800">{r.name}</td>
+                        <td className="px-3 py-2 font-mono text-gray-400 line-through">{r.oldSso}</td>
+                        <td className="px-2 py-2 text-gray-300">&rarr;</td>
+                        <td className="px-3 py-2 font-mono text-emerald-600 font-medium">{r.newSso}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
         <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
@@ -2270,15 +2370,68 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkS
   );
 }
 
+// ── Data Ops Menu ─────────────────────────────────────────────────────────
+
+function DataOpsMenu({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onBatchPhotos }: {
+  onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
+  onImportSwing: () => void; onReplaceSso: () => void; onBatchPhotos: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative hidden md:block">
+      <button onClick={() => setOpen((p) => !p)}
+        className="flex items-center gap-1.5 h-9 px-3.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors">
+        <Upload className="w-3.5 h-3.5" />Data Ops <ChevronDown className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
+            <button onClick={() => { setOpen(false); onImportPerformers(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
+            </button>
+            <button onClick={() => { setOpen(false); onImportEvents(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
+            </button>
+            <button onClick={() => { setOpen(false); onImportSkills(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
+            </button>
+            <button onClick={() => { setOpen(false); onImportSwing(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
+            </button>
+            <div className="my-1 border-t border-gray-100" />
+            <button onClick={() => { setOpen(false); onReplaceSso(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+            </button>
+            <button onClick={() => { setOpen(false); onBatchPhotos(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Card View ──────────────────────────────────────────────────────────────
 
-function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onAssignPerformers, showUnassigned, onOpenActor }: {
+function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onAssignPerformers, showUnassigned, onOpenActor,
+  onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onBatchPhotos,
+}: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
   onCast: (ids: number[]) => void;
   onAssignPerformers: () => void;
   showUnassigned: boolean;
   onOpenActor: (id: number) => void;
+  onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
+  onImportSwing: () => void; onReplaceSso: () => void; onBatchPhotos: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
@@ -2335,11 +2488,14 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
               <h2 className="text-base sm:text-lg font-bold text-gray-900">Unassigned</h2>
               <p className="text-xs text-gray-400 mt-0.5">{unassignedAll.length} performers without a home show/role</p>
             </div>
-            <button onClick={() => setShowFilter((p) => !p)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-              <Filter className="w-4 h-4" />Filter
-              {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowFilter((p) => !p)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                <Filter className="w-4 h-4" />Filter
+                {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+              </button>
+              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
+            </div>
           </div>
           {showFilter && (
             <div className="hidden md:block">
@@ -2417,10 +2573,98 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
   }
 
   if (!selectedShow || !selectedRole) {
+    const allFiltered = ALL_ACTORS_BY_SSO.filter((p) => actorMatchesFilters(p, filters, statusOf));
+    const allTotalPages = Math.max(1, Math.ceil(allFiltered.length / pageSize));
+    const allSafeP = Math.min(page, allTotalPages);
+    const allPageItems = allFiltered.slice((allSafeP - 1) * pageSize, allSafeP * pageSize);
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-300">
-        <Film className="w-12 h-12" />
-        <p className="text-sm">Select a show and role to view the cast</p>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-gray-900">All Performers</h2>
+              <p className="text-xs text-gray-400 mt-0.5">{allFiltered.length} performers</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowFilter((p) => !p)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                <Filter className="w-4 h-4" />Filter
+                {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
+              </button>
+              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
+            </div>
+          </div>
+          {showFilter && (
+            <div className="hidden md:block">
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </div>
+          )}
+          <div className="md:hidden">
+            <BottomSheet open={showFilter} onClose={() => setShowFilter(false)} title="筛选"
+              footer={
+                <div className="flex gap-2">
+                  <button onClick={() => updateFilters(EMPTY_FILTERS)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <RotateCcw className="w-3.5 h-3.5" />Reset
+                  </button>
+                  <button onClick={() => setShowFilter(false)}
+                    className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Apply</button>
+                </div>
+              }
+            >
+              <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
+            </BottomSheet>
+          </div>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
+              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
+              <div className="flex items-center gap-2">
+                <button onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
+                }}
+                  className="px-3.5 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors">
+                  Mark Status
+                </button>
+                <button onClick={() => { onCast(Array.from(selectedIds)); }}
+                  className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
+                  Assign Role
+                </button>
+              </div>
+            </div>
+          )}
+          {allFiltered.length === 0 ? (
+            <p className="text-sm text-gray-300 py-8 text-center">No performers match the filters</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {allPageItems.map((a, i) => (
+                <PerformerCard key={a.id} actor={a} index={(allSafeP - 1) * pageSize + i} type="home"
+                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor}
+                  onMarkStatus={openCardStatusMenu} />
+              ))}
+            </div>
+          )}
+        </div>
+        {allTotalPages > 1 && (
+          <Paginator page={allSafeP} totalPages={allTotalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
+            totalItems={allFiltered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        )}
+        {markMenu && (() => {
+          const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
+          return <MarkStatusMenu anchor={markMenu.anchor}
+            current={cur}
+            count={markMenu.single ? undefined : markMenu.ids.length}
+            onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
+        })()}
+        {offboardIds && (
+          <OffboardingDialog count={offboardIds.length}
+            onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
+            onConfirm={() => {
+              setStatusFor(offboardIds, "Inactive");
+              if (!markMenu?.single) setSelectedIds(new Set());
+              setMarkMenu(null);
+            }} />
+        )}
       </div>
     );
   }
@@ -2455,13 +2699,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              {/* 0522 spec: primary entry is "Assign Performers" — start from
-                  the current show/role and pick performers to add. With cards
-                  pre-selected the same button reassigns them. */}
-              <button onClick={() => selectedIds.size > 0 ? onCast(Array.from(selectedIds)) : onAssignPerformers()}
+              <button onClick={onAssignPerformers}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm">
-                <Users className="w-4 h-4" />{selectedIds.size > 0 ? `Reassign (${selectedIds.size})` : "Assign Performers"}
+                <Users className="w-4 h-4" />Assign Performers
               </button>
+              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
             </div>
           </div>
 
@@ -2914,15 +3156,14 @@ function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImpo
 // ── Left Sidebar ───────────────────────────────────────────────────────────
 
 function LeftSidebar({
-  viewMode, onChangeViewMode,
   selectedShowId, selectedRoleId, showUnassigned,
-  onSelectUnassigned, onSelectRole,
+  onSelectUnassigned, onSelectRole, onSelectAll,
   isMobileOpen, onClose,
 }: {
-  viewMode: ViewMode; onChangeViewMode: (m: ViewMode) => void;
   selectedShowId: string | null; selectedRoleId: string | null; showUnassigned: boolean;
   onSelectUnassigned: () => void;
   onSelectRole: (showId: string, roleId: string) => void;
+  onSelectAll: () => void;
   isMobileOpen: boolean;
   onClose: () => void;
 }) {
@@ -2963,21 +3204,6 @@ function LeftSidebar({
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* View Mode Segmented Switch */}
-      <div className="px-3 py-3 border-b border-gray-100">
-        <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
-          {([
-            ["card", "Card", LayoutGrid],
-            ["roster", "Roster", List],
-          ] as const).map(([val, lbl, Icon]) => (
-            <button key={val} onClick={() => onChangeViewMode(val)}
-              className={`flex-1 flex items-center justify-center gap-1.5 h-7 rounded-md text-xs font-medium transition-all ${viewMode === val ? "bg-brand-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-              <Icon className="w-3.5 h-3.5" />{lbl}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Search */}
       <div className="px-3 py-2 border-b border-gray-100">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Show or role name"
@@ -2985,6 +3211,13 @@ function LeftSidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
+        {/* All Performers */}
+        <button onClick={onSelectAll}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors mb-1 ${!showUnassigned && !selectedShowId ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
+          <span>All Performers</span>
+          <span className={`text-xs ${!showUnassigned && !selectedShowId ? "text-brand-600" : "text-gray-400"}`}>({ALL_ACTORS_BY_SSO.length})</span>
+        </button>
+
         {/* Regular Show group */}
         <div>
           <button onClick={() => setRegularExpanded((p) => !p)}
@@ -3053,8 +3286,6 @@ function LeftSidebar({
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-type ViewMode = "card" | "roster";
-
 export default function CastingBookPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -3062,7 +3293,6 @@ export default function CastingBookPage() {
   const actorParam = searchParams.get("actor");
   const sectionParam = searchParams.get("section") === "basic" ? "basic" : null;
 
-  const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedShowId, setSelectedShowId] = useState<string | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
@@ -3191,18 +3421,16 @@ export default function CastingBookPage() {
           />
         )}
         <LeftSidebar
-          viewMode={viewMode}
-          onChangeViewMode={(m) => { setViewMode(m); closeSidebarOnMobile(); }}
           selectedShowId={selectedShowId}
           selectedRoleId={selectedRoleId}
           showUnassigned={showUnassigned}
           onSelectUnassigned={() => { setShowUnassigned(true); setSelectedShowId(null); setSelectedRoleId(null); closeSidebarOnMobile(); }}
           onSelectRole={(showId, roleId) => { selectRole(showId, roleId); closeSidebarOnMobile(); }}
+          onSelectAll={() => { setShowUnassigned(false); setSelectedShowId(null); setSelectedRoleId(null); closeSidebarOnMobile(); }}
           isMobileOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {viewMode === "card" && (
             <CardView selectedShow={selectedShow} selectedRole={selectedRole}
               castTab={castTab} setCastTab={setCastTab}
               onCast={(ids) => setAssignTarget({
@@ -3213,19 +3441,14 @@ export default function CastingBookPage() {
               })}
               onAssignPerformers={() => setAssignPerformersOpen(true)}
               showUnassigned={showUnassigned}
-              onOpenActor={openActor} />
-          )}
-          {viewMode === "roster" && (
-            <RosterView
+              onOpenActor={openActor}
               onImportPerformers={() => setImportModal("performers")}
               onImportEvents={() => setImportModal("events")}
               onImportSkills={() => setImportModal("skills")}
               onImportSwing={() => setImportModal("swing")}
-              onBindSso={() => setImportModal("sso")}
+              onReplaceSso={() => setImportModal("sso")}
               onBatchPhotos={() => setImportModal("photos")}
-              selectedShow={selectedShow} selectedRole={selectedRole}
-              showUnassigned={showUnassigned} onOpenActor={openActor} />
-          )}
+            />
         </div>
       </div>
 
@@ -3259,7 +3482,7 @@ export default function CastingBookPage() {
       {importModal === "events" && <EventImportModal onClose={() => setImportModal(null)} />}
       {importModal === "skills" && <SkillImportModal onClose={() => setImportModal(null)} />}
       {importModal === "swing" && <SwingImportModal onClose={() => setImportModal(null)} />}
-      {importModal === "sso" && <SsoBindingModal onClose={() => setImportModal(null)} />}
+      {importModal === "sso" && <SsoReplacementModal onClose={() => setImportModal(null)} />}
       {importModal === "photos" && <BatchPhotoUploadModal onClose={() => setImportModal(null)} />}
     </div>
     </StatusCtx.Provider>
