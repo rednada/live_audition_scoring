@@ -852,16 +852,25 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
   actor: Actor; headshotUrl: string; onBack: () => void;
 }) {
   const { statusOf } = useActorStatus();
-  const fields: { label: string; value: string }[] = [
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    name: actor.name,
+    gender: actor.gender,
+    nationality: actor.nationality,
+    height: String(actor.height),
+    weight: String(actor.weight),
+  });
+
+  const readOnlyFields: { label: string; value: string }[] = [
     { label: "SSO", value: actor.ssoId },
-    { label: "Name", value: actor.name },
-    { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
-    { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
-    { label: "Height", value: `${actor.height} cm` },
-    { label: "Weight", value: `${actor.weight} kg` },
     { label: "Home Show", value: actor.homeShow ?? "—" },
     { label: "Home Role", value: actor.homeRole ?? "—" },
   ];
+
+  function handleSave() {
+    // commit draft (demo: just close edit mode)
+    setEditing(false);
+  }
 
   return (
     <div className="md:hidden fixed inset-0 z-[55] bg-white flex flex-col">
@@ -871,6 +880,21 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <span className="ml-1 text-sm font-semibold text-gray-900">Basic Info</span>
+        <div className="ml-auto flex items-center gap-2 pr-1">
+          {editing ? (
+            <>
+              <button onClick={() => { setDraft({ name: actor.name, gender: actor.gender, nationality: actor.nationality, height: String(actor.height), weight: String(actor.weight) }); setEditing(false); }}
+                className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg">Cancel</button>
+              <button onClick={handleSave}
+                className="px-3 py-1.5 text-xs text-white bg-brand-500 rounded-lg font-medium">Save</button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)}
+              className="px-3 py-1.5 text-xs text-brand-600 border border-brand-200 rounded-lg font-medium flex items-center gap-1">
+              <Pencil className="w-3 h-3" />Edit
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="flex items-center gap-3 px-4 py-4 bg-gray-50 border-b border-gray-100">
@@ -883,10 +907,71 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
           <StatusBadge status={statusOf(actor)} />
         </div>
         <ul className="divide-y divide-gray-100">
-          {fields.map(({ label, value }) => (
+          {/* SSO — always read-only */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">SSO</span>
+            <span className="text-sm text-gray-800 text-right truncate font-mono">{actor.ssoId}</span>
+          </li>
+          {/* Editable fields */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Name</span>
+            {editing ? (
+              <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-40 focus:outline-none focus:ring-2 focus:ring-brand-200" />
+            ) : (
+              <span className="text-sm text-gray-800 text-right truncate">{draft.name}</span>
+            )}
+          </li>
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Gender</span>
+            {editing ? (
+              <select value={draft.gender} onChange={(e) => setDraft((d) => ({ ...d, gender: e.target.value }))}
+                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-brand-200">
+                <option value="men">Male</option>
+                <option value="women">Female</option>
+              </select>
+            ) : (
+              <span className="text-sm text-gray-800 text-right truncate">{draft.gender === "men" ? "Male" : draft.gender === "women" ? "Female" : "—"}</span>
+            )}
+          </li>
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Nationality</span>
+            {editing ? (
+              <input value={draft.nationality} onChange={(e) => setDraft((d) => ({ ...d, nationality: e.target.value }))}
+                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-40 focus:outline-none focus:ring-2 focus:ring-brand-200" />
+            ) : (
+              <span className="text-sm text-gray-800 text-right truncate">{`${actor.flag} ${draft.nationality}`}</span>
+            )}
+          </li>
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Height</span>
+            {editing ? (
+              <div className="flex items-center gap-1">
+                <input value={draft.height} onChange={(e) => setDraft((d) => ({ ...d, height: e.target.value }))}
+                  type="number" className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-20 focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                <span className="text-xs text-gray-400">cm</span>
+              </div>
+            ) : (
+              <span className="text-sm text-gray-800 text-right truncate">{draft.height} cm</span>
+            )}
+          </li>
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Weight</span>
+            {editing ? (
+              <div className="flex items-center gap-1">
+                <input value={draft.weight} onChange={(e) => setDraft((d) => ({ ...d, weight: e.target.value }))}
+                  type="number" className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-20 focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                <span className="text-xs text-gray-400">kg</span>
+              </div>
+            ) : (
+              <span className="text-sm text-gray-800 text-right truncate">{draft.weight} kg</span>
+            )}
+          </li>
+          {/* Home Show & Role — read-only, edited from list */}
+          {readOnlyFields.slice(1).map(({ label, value }) => (
             <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
               <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
-              <span className="text-sm text-gray-800 text-right truncate">{value}</span>
+              <span className="text-sm text-gray-500 text-right truncate">{value}</span>
             </li>
           ))}
         </ul>
@@ -917,6 +1002,27 @@ function ActorDetailDrawer({
   });
   const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
   const [offboardOpen, setOffboardOpen] = useState(false);
+
+  // ── Basic Info inline editing (desktop) ──────────────────────────────────
+  const [editingBasicInfo, setEditingBasicInfo] = useState(false);
+  const [basicDraft, setBasicDraft] = useState({
+    name: actor.name,
+    gender: actor.gender,
+    nationality: actor.nationality,
+    height: String(actor.height),
+    weight: String(actor.weight),
+  });
+
+  function saveBasicInfo() {
+    // commit draft (demo: just close edit mode)
+    setEditingBasicInfo(false);
+  }
+
+  function cancelBasicInfo() {
+    setBasicDraft({ name: actor.name, gender: actor.gender, nationality: actor.nationality, height: String(actor.height), weight: String(actor.weight) });
+    setEditingBasicInfo(false);
+  }
+
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const askConfirm = (title: string, message: string, onConfirm: () => void) =>
     setConfirm({ title, message, onConfirm });
@@ -1214,31 +1320,80 @@ function ActorDetailDrawer({
           </div>
         </div>
 
-        {/* Home Show & Role accent strip (desktop only; mobile shows it in the card header) */}
-        {(actor.homeShow || actor.homeRole) && (
-          <div className="hidden md:flex flex-shrink-0 px-5 py-2.5 bg-brand-50 border-b border-brand-100 items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-brand-600 font-semibold">Home Show & Role</span>
-            <span className="text-sm font-bold text-brand-700">
-              {actor.homeShow ?? "—"} <span className="text-brand-400 mx-1">&</span> {actor.homeRole ?? "—"}
-            </span>
-          </div>
-        )}
+        {/* Home Show & Role — removed duplicate accent strip per 0525 spec (kept in Basic Info only) */}
 
-        {/* Basic Info — single row (desktop only). Per 0522 spec the field set
-            is exactly: SSO / Gender / Nationality / Height / Weight. */}
-        <div className="hidden md:grid flex-shrink-0 grid-cols-5 border-b border-gray-100">
-          {[
-            { label: "SSO", value: actor.ssoId, mono: true },
-            { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
-            { label: "Nationality", value: `${actor.flag} ${actor.nationality}` },
-            { label: "Height", value: `${actor.height} cm` },
-            { label: "Weight", value: `${actor.weight} kg` },
-          ].map(({ label, value, mono }) => (
-            <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100 last:border-r-0">
-              <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
-              <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
+        {/* Basic Info — single row (desktop only). Per 0525 spec all fields editable
+            except SSO (read-only) and Home Show/Role (edited in list). */}
+        <div className="hidden md:block flex-shrink-0 border-b border-gray-100">
+          <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50/60">
+            <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Basic Info</span>
+            {editingBasicInfo ? (
+              <div className="flex items-center gap-1.5">
+                <button onClick={cancelBasicInfo} className="text-[10px] text-gray-500 hover:text-gray-700 px-2 py-0.5 border border-gray-200 rounded">Cancel</button>
+                <button onClick={saveBasicInfo} className="text-[10px] text-white bg-brand-500 hover:bg-brand-600 px-2 py-0.5 rounded font-medium">Save</button>
+              </div>
+            ) : (
+              <button onClick={() => setEditingBasicInfo(true)} className="text-[10px] text-brand-500 hover:text-brand-700 flex items-center gap-0.5 font-medium">
+                <Pencil className="w-2.5 h-2.5" />Edit
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-5">
+            {/* SSO — always read-only */}
+            <div className="px-2 py-2.5 text-center border-r border-gray-100">
+              <p className="text-[10px] text-gray-400 mb-0.5">SSO</p>
+              <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate font-mono">{actor.ssoId}</p>
             </div>
-          ))}
+            {/* Gender */}
+            <div className="px-2 py-2.5 text-center border-r border-gray-100">
+              <p className="text-[10px] text-gray-400 mb-0.5">Gender</p>
+              {editingBasicInfo ? (
+                <select value={basicDraft.gender} onChange={(e) => setBasicDraft((d) => ({ ...d, gender: e.target.value }))}
+                  className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-brand-200">
+                  <option value="men">Male</option>
+                  <option value="women">Female</option>
+                </select>
+              ) : (
+                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.gender === "men" ? "Male" : basicDraft.gender === "women" ? "Female" : "—"}</p>
+              )}
+            </div>
+            {/* Nationality */}
+            <div className="px-2 py-2.5 text-center border-r border-gray-100">
+              <p className="text-[10px] text-gray-400 mb-0.5">Nationality</p>
+              {editingBasicInfo ? (
+                <input value={basicDraft.nationality} onChange={(e) => setBasicDraft((d) => ({ ...d, nationality: e.target.value }))}
+                  className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-full text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
+              ) : (
+                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{`${actor.flag} ${basicDraft.nationality}`}</p>
+              )}
+            </div>
+            {/* Height */}
+            <div className="px-2 py-2.5 text-center border-r border-gray-100">
+              <p className="text-[10px] text-gray-400 mb-0.5">Height</p>
+              {editingBasicInfo ? (
+                <div className="flex items-center justify-center gap-0.5">
+                  <input value={basicDraft.height} onChange={(e) => setBasicDraft((d) => ({ ...d, height: e.target.value }))}
+                    type="number" className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-12 text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
+                  <span className="text-[10px] text-gray-400">cm</span>
+                </div>
+              ) : (
+                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.height} cm</p>
+              )}
+            </div>
+            {/* Weight */}
+            <div className="px-2 py-2.5 text-center">
+              <p className="text-[10px] text-gray-400 mb-0.5">Weight</p>
+              {editingBasicInfo ? (
+                <div className="flex items-center justify-center gap-0.5">
+                  <input value={basicDraft.weight} onChange={(e) => setBasicDraft((d) => ({ ...d, weight: e.target.value }))}
+                    type="number" className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-12 text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
+                  <span className="text-[10px] text-gray-400">kg</span>
+                </div>
+              ) : (
+                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.weight} kg</p>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Scrollable sections */}
@@ -1824,7 +1979,7 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
       columns={PERFORMER_IMPORT_COLUMNS}
       sample={["20017233", "Arthur William Bennett", "", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
       fileBaseName="performer_onboarding"
-      hint={<>{" "}Override fields: gender, nationality, height, weight, home show, home role. Leave SSO blank if not yet issued — fill the phone number column instead; the row appears under <span className="font-semibold">SSO Binding</span> until bound.</>}
+      hint={<>{" "}Imported data defaults to Active status. Use phone number if no SSO. Replace with official SSO after onboarding.</>}
       validateRow={(row) => {
         const sso = String(row[0] ?? "").trim();
         const phone = String(row[2] ?? "").trim();
@@ -1853,7 +2008,7 @@ function EventImportModal({ onClose }: { onClose: () => void }) {
       columns={EVENT_IMPORT_COLUMNS}
       sample={["20017233", "EVT-2025-HUAPI", "ROLE-HEIBAI"]}
       fileBaseName="event_experience"
-      hint={<>{" "}One SSO can appear on multiple rows. Duplicate event code per SSO is de-duped on import.</>}
+      hint={<>{" "}Add new rows for multiple entries. Duplicate records will be removed automatically.</>}
       onClose={onClose}
     />
   );
@@ -1874,7 +2029,7 @@ function SkillImportModal({ onClose }: { onClose: () => void }) {
       columns={SKILL_IMPORT_COLUMNS}
       sample={["20017233", "舞蹈", "拉丁舞"]}
       fileBaseName="skill"
-      hint={<>{" "}One SSO can appear on multiple rows. Duplicate (skillset type + skill) per SSO is de-duped on import.</>}
+      hint={<>{" "}Add new rows for multiple entries. Duplicate records will be removed automatically.</>}
       onClose={onClose}
     />
   );
@@ -1895,7 +2050,42 @@ function SwingImportModal({ onClose }: { onClose: () => void }) {
       columns={SWING_IMPORT_COLUMNS}
       sample={["20017233", "UOP", "Dragon Dance"]}
       fileBaseName="swing_show_role"
-      hint={<>{" "}One SSO can appear on multiple rows. Duplicate (show + role) per SSO is de-duped. Type defaults to <span className="font-semibold">swing</span>.</>}
+      hint={<>{" "}Only Swing Show &amp; Role data can be imported.</>}
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Update Basic Info Import (per 0525 spec) ─────────────────────────────
+const BASIC_INFO_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Name", required: false },
+  { key: "Nationality", required: false },
+  { key: "Gender", required: false },
+  { key: "Height (cm)", required: false },
+  { key: "Weight (kg)", required: false },
+  { key: "Home Show", required: false },
+  { key: "Home Role", required: false },
+];
+
+function BasicInfoImportModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Update Basic Info"
+      subtitle="Batch update performer basic info (PC only)"
+      columns={BASIC_INFO_IMPORT_COLUMNS}
+      sample={["20017233", "Arthur Bennett", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
+      fileBaseName="update_basic_info"
+      hint={<>{" "}SSO is required. Include at least one other field to update. Fields left blank will not be overwritten.</>}
+      validateRow={(row) => {
+        const sso = String(row[0] ?? "").trim();
+        if (!sso) return "SSO is required";
+        if (!/^\d{8}$/.test(sso)) return "SSO must be 8 digits";
+        // At least one other field must be present
+        const hasOther = row.slice(1).some((v) => String(v ?? "").trim());
+        if (!hasOther) return "At least one field besides SSO is required";
+        return null;
+      }}
       onClose={onClose}
     />
   );
@@ -1909,11 +2099,27 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
   const [oldSso, setOldSso] = useState("");
   const [newSso, setNewSso] = useState("");
   const [replacements, setReplacements] = useState<{ name: string; oldSso: string; newSso: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Fuzzy search: match by SSO prefix or name substring
+  const suggestions = useMemo(() => {
+    const q = oldSso.trim().toLowerCase();
+    if (!q) return [];
+    return ALL_ACTORS_BY_SSO.filter((a) =>
+      a.ssoId.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)
+    ).slice(0, 8);
+  }, [oldSso]);
 
   const matchedActor = useMemo(() => {
-    if (!/^\d{8}$/.test(oldSso)) return null;
-    return ALL_ACTORS_BY_SSO.find((a) => a.ssoId === oldSso) ?? null;
+    // Exact match on 8-digit SSO
+    if (/^\d{8}$/.test(oldSso)) return ALL_ACTORS_BY_SSO.find((a) => a.ssoId === oldSso) ?? null;
+    return null;
   }, [oldSso]);
+
+  function selectSuggestion(actor: Actor) {
+    setOldSso(actor.ssoId);
+    setShowSuggestions(false);
+  }
 
   function doReplace() {
     if (!matchedActor || !/^\d{8}$/.test(newSso) || oldSso === newSso) return;
@@ -1934,14 +2140,27 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
           <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-            <div className="flex-1 w-full sm:w-auto">
+            <div className="flex-1 w-full sm:w-auto relative">
               <label className="block text-xs text-gray-400 mb-1">Old SSO</label>
-              <input value={oldSso} onChange={(e) => setOldSso(e.target.value)}
-                placeholder="2xxxxxxx" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
-              {oldSso && /^\d{8}$/.test(oldSso) && (
-                <p className={`mt-1 text-xs ${matchedActor ? "text-emerald-600" : "text-red-500"}`}>
-                  {matchedActor ? matchedActor.name : "No performer found"}
-                </p>
+              <input value={oldSso} onChange={(e) => { setOldSso(e.target.value); setShowSuggestions(true); }}
+                onFocus={() => setShowSuggestions(true)}
+                placeholder="Search by SSO or name…" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
+              {showSuggestions && suggestions.length > 0 && !matchedActor && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {suggestions.map((a) => (
+                    <button key={a.id} type="button" onClick={() => selectSuggestion(a)}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-sm">
+                      <span className="font-mono text-gray-500 text-xs">{a.ssoId}</span>
+                      <span className="text-gray-800">{a.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {matchedActor && (
+                <p className="mt-1 text-xs text-emerald-600">{matchedActor.name}</p>
+              )}
+              {oldSso && /^\d{8}$/.test(oldSso) && !matchedActor && (
+                <p className="mt-1 text-xs text-red-500">No performer found</p>
               )}
             </div>
             <span className="hidden sm:block text-gray-300 text-lg pb-1">&rarr;</span>
@@ -2372,16 +2591,16 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkS
 
 // ── Data Ops Menu ─────────────────────────────────────────────────────────
 
-function DataOpsMenu({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onBatchPhotos }: {
+function ImportMenu({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onUpdateBasicInfo, onBatchPhotos }: {
   onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
-  onImportSwing: () => void; onReplaceSso: () => void; onBatchPhotos: () => void;
+  onImportSwing: () => void; onUpdateBasicInfo: () => void; onBatchPhotos: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative hidden md:block">
       <button onClick={() => setOpen((p) => !p)}
         className="flex items-center gap-1.5 h-9 px-3.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors">
-        <Upload className="w-3.5 h-3.5" />Data Ops <ChevronDown className="w-3.5 h-3.5" />
+        <Upload className="w-3.5 h-3.5" />Import <ChevronDown className="w-3.5 h-3.5" />
       </button>
       {open && (
         <>
@@ -2390,6 +2609,10 @@ function DataOpsMenu({ onImportPerformers, onImportEvents, onImportSkills, onImp
             <button onClick={() => { setOpen(false); onImportPerformers(); }}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
               <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
+            </button>
+            <button onClick={() => { setOpen(false); onUpdateBasicInfo(); }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+              <Upload className="w-3.5 h-3.5 text-gray-400" />Update Basic Info
             </button>
             <button onClick={() => { setOpen(false); onImportEvents(); }}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
@@ -2404,10 +2627,6 @@ function DataOpsMenu({ onImportPerformers, onImportEvents, onImportSkills, onImp
               <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
             </button>
             <div className="my-1 border-t border-gray-100" />
-            <button onClick={() => { setOpen(false); onReplaceSso(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
-            </button>
             <button onClick={() => { setOpen(false); onBatchPhotos(); }}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
               <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
@@ -2422,7 +2641,7 @@ function DataOpsMenu({ onImportPerformers, onImportEvents, onImportSkills, onImp
 // ── Card View ──────────────────────────────────────────────────────────────
 
 function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onAssignPerformers, showUnassigned, onOpenActor,
-  onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onBatchPhotos,
+  onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onUpdateBasicInfo, onBatchPhotos,
 }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
@@ -2431,7 +2650,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
   showUnassigned: boolean;
   onOpenActor: (id: number) => void;
   onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
-  onImportSwing: () => void; onReplaceSso: () => void; onBatchPhotos: () => void;
+  onImportSwing: () => void; onReplaceSso: () => void; onUpdateBasicInfo: () => void; onBatchPhotos: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
@@ -2494,7 +2713,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
+              <button onClick={onReplaceSso}
+                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              </button>
+              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
             </div>
           </div>
           {showFilter && (
@@ -2591,7 +2814,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
+              <button onClick={onReplaceSso}
+                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              </button>
+              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
             </div>
           </div>
           {showFilter && (
@@ -2703,7 +2930,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm">
                 <Users className="w-4 h-4" />Assign Performers
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onReplaceSso={onReplaceSso} onBatchPhotos={onBatchPhotos} />
+              <button onClick={onReplaceSso}
+                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              </button>
+              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
             </div>
           </div>
 
@@ -2816,12 +3047,13 @@ function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: Sor
   );
 }
 
-function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onBindSso, onBatchPhotos, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
+function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onBindSso, onUpdateBasicInfo, onBatchPhotos, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
   onImportPerformers: () => void;
   onImportEvents: () => void;
   onImportSkills: () => void;
   onImportSwing: () => void;
   onBindSso: () => void;
+  onUpdateBasicInfo: () => void;
   onBatchPhotos: () => void;
   selectedShow: Show | null; selectedRole: Role | null; showUnassigned: boolean;
   onOpenActor: (id: number) => void;
@@ -2951,44 +3183,50 @@ function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImpo
             <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
           </>
         )}
-        {/* Imports & ops menu — PC only per 0522 spec ("仅PC端"). */}
-        <div className="ml-auto relative hidden md:block">
-          <button onClick={() => setActionMenuOpen((p) => !p)}
-            className="h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
-            <Upload className="w-3.5 h-3.5" />Data Ops <ChevronDown className="w-3.5 h-3.5" />
+        {/* Replace SSO + Import menu — PC only per 0525 spec. */}
+        <div className="ml-auto hidden md:flex items-center gap-2">
+          <button onClick={onBindSso}
+            className="h-9 flex items-center gap-1.5 px-3.5 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+            <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
           </button>
-          {actionMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setActionMenuOpen(false)} />
-              <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
-                <button onClick={() => { setActionMenuOpen(false); onImportPerformers(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
-                </button>
-                <button onClick={() => { setActionMenuOpen(false); onImportEvents(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
-                </button>
-                <button onClick={() => { setActionMenuOpen(false); onImportSkills(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
-                </button>
-                <button onClick={() => { setActionMenuOpen(false); onImportSwing(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
-                </button>
-                <div className="my-1 border-t border-gray-100" />
-                <button onClick={() => { setActionMenuOpen(false); onBindSso(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Pencil className="w-3.5 h-3.5 text-gray-400" />Bind SSO
-                </button>
-                <button onClick={() => { setActionMenuOpen(false); onBatchPhotos(); }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                  <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
-                </button>
-              </div>
-            </>
-          )}
+          <div className="relative">
+            <button onClick={() => setActionMenuOpen((p) => !p)}
+              className="h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
+              <Upload className="w-3.5 h-3.5" />Import <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+            {actionMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setActionMenuOpen(false)} />
+                <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
+                  <button onClick={() => { setActionMenuOpen(false); onImportPerformers(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
+                  </button>
+                  <button onClick={() => { setActionMenuOpen(false); onUpdateBasicInfo(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />Update Basic Info
+                  </button>
+                  <button onClick={() => { setActionMenuOpen(false); onImportEvents(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
+                  </button>
+                  <button onClick={() => { setActionMenuOpen(false); onImportSkills(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
+                  </button>
+                  <button onClick={() => { setActionMenuOpen(false); onImportSwing(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
+                  </button>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button onClick={() => { setActionMenuOpen(false); onBatchPhotos(); }}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                    <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -3300,7 +3538,7 @@ export default function CastingBookPage() {
   const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [assignPerformersOpen, setAssignPerformersOpen] = useState(false);
   // Excel imports + auxiliary ops (PC-only flows per 0522 spec)
-  const [importModal, setImportModal] = useState<null | "performers" | "events" | "skills" | "swing" | "sso" | "photos">(null);
+  const [importModal, setImportModal] = useState<null | "performers" | "events" | "skills" | "swing" | "sso" | "basicinfo" | "photos">(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
 
@@ -3447,6 +3685,7 @@ export default function CastingBookPage() {
               onImportSkills={() => setImportModal("skills")}
               onImportSwing={() => setImportModal("swing")}
               onReplaceSso={() => setImportModal("sso")}
+              onUpdateBasicInfo={() => setImportModal("basicinfo")}
               onBatchPhotos={() => setImportModal("photos")}
             />
         </div>
@@ -3479,6 +3718,7 @@ export default function CastingBookPage() {
         />
       )}
       {importModal === "performers" && <RosterImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "basicinfo" && <BasicInfoImportModal onClose={() => setImportModal(null)} />}
       {importModal === "events" && <EventImportModal onClose={() => setImportModal(null)} />}
       {importModal === "skills" && <SkillImportModal onClose={() => setImportModal(null)} />}
       {importModal === "swing" && <SwingImportModal onClose={() => setImportModal(null)} />}
