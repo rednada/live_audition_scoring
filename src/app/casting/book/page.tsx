@@ -5,8 +5,8 @@ import { useState, useMemo, useRef, useCallback, createContext, useContext } fro
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, ArrowUpDown, LayoutGrid, List,
-  RotateCcw, Eye, Users, Film, Plus,
+  ArrowUp, ArrowDown,
+  RotateCcw, Eye, Users, UserX, Plus,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
   Filter, Check, Menu, ArrowLeft,
 } from "lucide-react";
@@ -20,26 +20,24 @@ interface MediaFile { type: "photo" | "video"; url: string; duration?: string; n
 interface SkillEntry { id: string; type: string; skill: string }
 interface ShowRoleRecord {
   id: string; show: string; role: string; roleType: "home" | "swing";
-  date: string; status: "active" | "inactive";
+  date: string; status: "active" | "inactive"; endDate?: string;
 }
 interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
 
-type ActorStatus = "Active" | "Inactive";
-const ACTOR_STATUSES: ActorStatus[] = ["Active", "Inactive"];
-const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; ring: string; dot: string }> = {
-  "Active":   { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200", dot: "bg-emerald-500" },
-  "Inactive": { bg: "bg-gray-100",   text: "text-gray-600",    ring: "ring-gray-200",    dot: "bg-gray-400" },
+type ActorStatus = "Employed" | "Terminated";
+const ACTOR_STATUSES: ActorStatus[] = ["Employed", "Terminated"];
+const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; dot: string }> = {
+  "Employed":   { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  "Terminated": { bg: "bg-rose-50",    text: "text-rose-600",    dot: "bg-rose-400" },
 };
 
-const INACTIVE_REASONS = ["No show", "转出", "已离职", "其它"] as const;
-type InactiveReason = typeof INACTIVE_REASONS[number];
-
 // Status override state: actor objects come from module-level constants so
-// in-session edits are kept here and merged on read.
+// in-session edits are kept here and merged on read. Status only ever flips
+// Employed → Terminated (via the Terminate flow); there is no reactivation.
 const StatusCtx = createContext<{
   statusOf: (a: Actor) => ActorStatus;
   setStatusFor: (ids: number[], status: ActorStatus) => void;
-}>({ statusOf: (a) => a.status ?? "Active", setStatusFor: () => {} });
+}>({ statusOf: (a) => a.status ?? "Employed", setStatusFor: () => {} });
 const useActorStatus = () => useContext(StatusCtx);
 
 function StatusBadge({ status, size = "sm" }: { status: ActorStatus; size?: "xs" | "sm" }) {
@@ -55,132 +53,14 @@ function StatusBadge({ status, size = "sm" }: { status: ActorStatus; size?: "xs"
   );
 }
 
-// Offboarding flow (current → Inactive). The doc requires picking a reason
-// before the status flips, so we always route both single-row and batch
-// "mark inactive" through this dialog. To reactivate, picking Active commits
-// immediately (no reason needed).
-function OffboardingDialog({ count, onClose, onConfirm }: {
-  count: number; onClose: () => void; onConfirm: (reason: InactiveReason) => void;
-}) {
-  const [reason, setReason] = useState<InactiveReason>("已离职");
-  const title = count === 1 ? "Mark as Inactive" : `Mark ${count} performers as Inactive`;
-  const body = (
-    <div className="space-y-3">
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Choose a reason. The performer&apos;s status will be set to Inactive; their event experience and skills will be preserved.
-      </p>
-      <div className="space-y-2">
-        {INACTIVE_REASONS.map((r) => (
-          <label key={r} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${reason === r ? "border-brand-300 bg-brand-50/40" : "border-gray-200 hover:bg-gray-50"}`}>
-            <input type="radio" checked={reason === r} onChange={() => setReason(r)} className="accent-brand-500" />
-            <span className="text-sm text-gray-800">{r}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-  return (
-    <>
-      <div className="hidden md:flex fixed inset-0 z-[60] items-center justify-center bg-black/40 p-4" onClick={onClose}>
-        <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-sm" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
-          </div>
-          <div className="px-5 py-4">{body}</div>
-          <div className="flex justify-end gap-2 px-5 pb-5">
-            <button onClick={onClose} className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">Cancel</button>
-            <button onClick={() => { onConfirm(reason); onClose(); }} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium">Mark Inactive</button>
-          </div>
-        </div>
-      </div>
-      <div className="md:hidden">
-        <BottomSheet open onClose={onClose} title={title}
-          footer={
-            <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
-              <button onClick={() => { onConfirm(reason); onClose(); }} className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium">Mark Inactive</button>
-            </div>
-          }
-        >{body}</BottomSheet>
-      </div>
-    </>
-  );
-}
-
-// Status mark menu — popover on desktop, bottom sheet on mobile.
-// Active → Inactive opens the offboarding reason picker; Inactive → Active commits directly.
-function MarkStatusMenu({ anchor, current, count, onClose, onPick }: {
-  anchor?: { top: number; left: number };
-  current?: ActorStatus;
-  count?: number;
-  onClose: () => void;
-  onPick: (s: ActorStatus) => void;
-}) {
-  return (
-    <>
-      {/* Desktop popover */}
-      <div className="hidden md:block">
-        <div className="fixed inset-0 z-40" onClick={onClose} />
-        <div
-          className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 w-44"
-          style={{ top: anchor?.top ?? 80, left: anchor?.left ?? 80 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {count !== undefined && (
-            <div className="px-3 py-1.5 text-[11px] text-gray-400 border-b border-gray-100">
-              Mark {count} performer{count === 1 ? "" : "s"}
-            </div>
-          )}
-          {ACTOR_STATUSES.map((s) => {
-            const active = current === s;
-            const c = STATUS_BADGE[s];
-            return (
-              <button key={s} onClick={() => { onPick(s); onClose(); }}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs hover:bg-gray-50 ${active ? "bg-brand-50/40" : ""}`}>
-                <span className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-                  <span className="text-gray-700">{s}</span>
-                </span>
-                {active && <Check className="w-3.5 h-3.5 text-brand-500" />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      {/* Mobile bottom sheet */}
-      <div className="md:hidden">
-        <BottomSheet open onClose={onClose} title={count !== undefined ? `Mark ${count} performer${count === 1 ? "" : "s"}` : "Mark Status"}>
-          <div className="py-1">
-            {ACTOR_STATUSES.map((s) => {
-              const active = current === s;
-              const c = STATUS_BADGE[s];
-              return (
-                <button key={s} onClick={() => { onPick(s); onClose(); }}
-                  className={`w-full flex items-center justify-between gap-3 px-1 py-3 border-b border-gray-50 ${active ? "bg-brand-50/40" : ""}`}>
-                  <span className="flex items-center gap-2.5">
-                    <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
-                    <span className="text-sm text-gray-800">{s}</span>
-                  </span>
-                  {active && <Check className="w-4 h-4 text-brand-500" />}
-                </button>
-              );
-            })}
-          </div>
-        </BottomSheet>
-      </div>
-    </>
-  );
-}
-
 interface Actor {
   id: number; ssoId: string; name: string; nationality: string; flag: string;
   gender?: "men" | "women";
   height: number; weight: number; photoUrl: string;
   homeShow?: string; homeRole?: string;
   status?: ActorStatus;
-  inactiveReason?: InactiveReason;
-  // Some imported records use a phone number in lieu of SSO until binding completes.
+  // Some imported records carry a placeholder SSO (e.g. a phone number) that
+  // isn't an 8-digit "2…" id — these surface in the Replace SSO flow.
   pendingPhone?: string;
   skillEntries?: SkillEntry[];
   mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
@@ -259,11 +139,11 @@ function dHash(n: number): number {
   return Math.abs(x);
 }
 
-// Status distribution for mock data: ~85% Active so users can still see the
-// Inactive state in filtering / batch flows without staging data manually.
+// Status distribution for mock data: ~88% Employed so the Terminated state is
+// still visible in filtering without staging data by hand.
 function genActorStatus(seed: number): ActorStatus {
   const h = dHash(seed * 71) % 100;
-  return h < 85 ? "Active" : "Inactive";
+  return h < 88 ? "Employed" : "Terminated";
 }
 
 function genSkillEntries(seed: number): SkillEntry[] {
@@ -433,14 +313,21 @@ function genPerformer(seed: number): Actor {
   const height = 160 + (dHash(seed) % 26);
   const weight = 48 + (dHash(seed * 2) % 35);
   const contractEndDate = CONTRACT_DATES[dHash(seed * 3) % CONTRACT_DATES.length];
+  // ~1 in 6 performers was imported without a proper 8-digit "2…" SSO — they
+  // carry a placeholder phone number and surface in the Replace SSO flow.
+  const needsSso = dHash(seed * 23) % 6 === 0;
+  const ssoId = needsSso
+    ? `1${String(3000000000 + (dHash(seed * 19) % 999999999))}`
+    : `2001${String(7000 + dHash(seed * 19) % 3000)}`;
   return {
-    id: 9000 + seed, ssoId: `2001${String(7000 + dHash(seed * 19) % 3000)}`,
+    id: 9000 + seed, ssoId,
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
     gender: pool.gender,
     height, weight,
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
     status: genActorStatus(9000 + seed),
+    pendingPhone: needsSso ? ssoId : undefined,
     skillEntries: genSkillEntries(seed),
     mediaFiles,
     showRoleRecords: genShowRoleRecords(seed, pair.show, pair.role, contractEndDate),
@@ -546,11 +433,11 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
         className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
         <ArrowUp className="w-5 h-5 -rotate-90" />
       </button>
-      <div className="max-w-2xl max-h-[80vh] relative" onClick={(e) => e.stopPropagation()}>
+      <div className="relative flex items-center justify-center px-4 sm:px-16" onClick={(e) => e.stopPropagation()}>
         {file.type === "video" ? (
           <div className="relative">
-            <img src={file.url} alt="" className="max-h-[80vh] max-w-full object-contain rounded-xl" />
-            <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
+            <img src={file.url} alt="" className="max-h-[92vh] max-w-[92vw] object-contain rounded-lg" />
+            <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center">
               <div className="w-16 h-16 bg-white/30 rounded-full flex items-center justify-center">
                 <Play className="w-8 h-8 text-white fill-white ml-1" />
               </div>
@@ -558,10 +445,10 @@ function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initia
             {file.duration && <span className="absolute bottom-3 left-3 text-xs text-white bg-black/60 px-1.5 py-0.5 rounded">{file.duration}</span>}
           </div>
         ) : (
-          <img src={file.url} alt="" className="max-h-[80vh] max-w-full object-contain rounded-xl" />
+          <img src={file.url} alt="" className="max-h-[92vh] max-w-[92vw] object-contain rounded-lg" />
         )}
         {file.note && (
-          <p className="mt-2 text-xs text-gray-300 text-center px-4">{file.note}</p>
+          <p className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[90%] text-xs text-white/90 text-center px-3 py-1 bg-black/50 rounded-full">{file.note}</p>
         )}
       </div>
       <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.min(files.length - 1, i + 1)); }} disabled={idx === files.length - 1}
@@ -594,6 +481,37 @@ function ConfirmDialog({ title, message, confirmLabel = "Confirm", onConfirm, on
             className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={onConfirm}
             className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition-colors">{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Inactivate Dialog (Show & Role / Event) ────────────────────────────────
+// Per 0527 spec: inactivating a record prompts for an expiry date defaulting to
+// today (editable).
+function InactivateDialog({ label, defaultDate, onConfirm, onCancel }: {
+  label: string; defaultDate: string;
+  onConfirm: (endDate: string) => void; onCancel: () => void;
+}) {
+  const [endDate, setEndDate] = useState(defaultDate);
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 pt-5 pb-4">
+          <h3 className="text-sm font-semibold text-gray-900">Set Inactive</h3>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{label} will be set to inactive. Choose the effective expiry date.</p>
+          <div className="mt-3">
+            <label className="block text-xs text-gray-400 mb-1">Expiry Date</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 pb-5">
+          <button onClick={onCancel}
+            className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={() => onConfirm(endDate)} disabled={!endDate}
+            className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors">Set Inactive</button>
         </div>
       </div>
     </div>
@@ -665,7 +583,7 @@ interface Filters {
   status: ActorStatus | "All";
 }
 
-const DEFAULT_FILTER_STATUS: ActorStatus = "Active";
+const DEFAULT_FILTER_STATUS: ActorStatus = "Employed";
 const EMPTY_FILTERS: Filters = {
   performer: "",
   heightMin: "", heightMax: "", weightMin: "", weightMax: "",
@@ -719,7 +637,7 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
   }
   if (f.nationality && a.nationality !== f.nationality) return false;
   if (f.status !== "All") {
-    const cur = statusOf ? statusOf(a) : (a.status ?? "Active");
+    const cur = statusOf ? statusOf(a) : (a.status ?? "Employed");
     if (cur !== f.status) return false;
   }
   return true;
@@ -727,6 +645,10 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
 
 const ALL_SHOWS = DATA.flatMap((l) => l.shows);
 const ALL_NATIONALITIES = [...new Set(ACTOR_POOL.map((a) => a.nationality))].sort();
+const NATIONALITY_FLAGS: Record<string, string> = ACTOR_POOL.reduce((m, a) => {
+  m[a.nationality] = a.flag;
+  return m;
+}, {} as Record<string, string>);
 
 type StringFilterKey = {
   [K in keyof Filters]: Filters[K] extends string ? K : never
@@ -848,53 +770,46 @@ function FilterPanel({ filters, onChange, onClose }: {
 
 // ── Basic Info — mobile-only sub page ──────────────────────────────────────
 
-function BasicInfoMobile({ actor, headshotUrl, onBack }: {
-  actor: Actor; headshotUrl: string; onBack: () => void;
+function BasicInfoMobile({
+  actor, headshotUrl, status, nationality, flag, homeShow, homeRole,
+  editing, form, onForm, onEdit, onCancelEdit, onSave, onBack,
+}: {
+  actor: Actor; headshotUrl: string; status: ActorStatus;
+  nationality: string; flag: string; homeShow: string; homeRole: string;
+  editing: boolean;
+  form: { nationality: string; homeShow: string; homeRole: string };
+  onForm: (f: { nationality: string; homeShow: string; homeRole: string }) => void;
+  onEdit: () => void; onCancelEdit: () => void; onSave: () => void;
+  onBack: () => void;
 }) {
-  const { statusOf } = useActorStatus();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({
-    name: actor.name,
-    gender: actor.gender,
-    nationality: actor.nationality,
-    height: String(actor.height),
-    weight: String(actor.weight),
-  });
-
-  const readOnlyFields: { label: string; value: string }[] = [
+  const formRoles = ALL_SHOWS.find((s) => s.name === form.homeShow)?.roles ?? [];
+  const readonlyFields: { label: string; value: string }[] = [
     { label: "SSO", value: actor.ssoId },
-    { label: "Home Show", value: actor.homeShow ?? "—" },
-    { label: "Home Role", value: actor.homeRole ?? "—" },
+    { label: "Name", value: actor.name },
+    { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
+    { label: "Height", value: `${actor.height} cm` },
+    { label: "Weight", value: `${actor.weight} kg` },
   ];
-
-  function handleSave() {
-    // commit draft (demo: just close edit mode)
-    setEditing(false);
-  }
+  const selectCls = "w-40 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white text-right focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-50";
 
   return (
     <div className="md:hidden fixed inset-0 z-[55] bg-white flex flex-col">
-      <div className="flex-shrink-0 h-12 flex items-center px-2 border-b border-gray-100 bg-white">
-        <button onClick={onBack} aria-label="Back"
-          className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <span className="ml-1 text-sm font-semibold text-gray-900">Basic Info</span>
-        <div className="ml-auto flex items-center gap-2 pr-1">
-          {editing ? (
-            <>
-              <button onClick={() => { setDraft({ name: actor.name, gender: actor.gender, nationality: actor.nationality, height: String(actor.height), weight: String(actor.weight) }); setEditing(false); }}
-                className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg">Cancel</button>
-              <button onClick={handleSave}
-                className="px-3 py-1.5 text-xs text-white bg-brand-500 rounded-lg font-medium">Save</button>
-            </>
-          ) : (
-            <button onClick={() => setEditing(true)}
-              className="px-3 py-1.5 text-xs text-brand-600 border border-brand-200 rounded-lg font-medium flex items-center gap-1">
-              <Pencil className="w-3 h-3" />Edit
-            </button>
-          )}
+      <div className="flex-shrink-0 h-12 flex items-center justify-between px-2 border-b border-gray-100 bg-white">
+        <div className="flex items-center">
+          <button onClick={onBack} aria-label="Back"
+            className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <span className="ml-1 text-sm font-semibold text-gray-900">Basic Info</span>
         </div>
+        {editing ? (
+          <div className="flex items-center gap-1.5 pr-1">
+            <button onClick={onCancelEdit} className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600">Cancel</button>
+            <button onClick={onSave} className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg"><Check className="w-3 h-3" />Save</button>
+          </div>
+        ) : (
+          <button onClick={onEdit} className="flex items-center gap-1 text-xs text-brand-600 font-medium px-2 py-1 mr-1"><Pencil className="w-3 h-3" />Edit</button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="flex items-center gap-3 px-4 py-4 bg-gray-50 border-b border-gray-100">
@@ -904,76 +819,50 @@ function BasicInfoMobile({ actor, headshotUrl, onBack }: {
             <p className="text-base font-bold text-gray-900 truncate">{actor.name}</p>
             <p className="text-xs text-gray-400 font-mono">{actor.ssoId}</p>
           </div>
-          <StatusBadge status={statusOf(actor)} />
+          <StatusBadge status={status} />
         </div>
         <ul className="divide-y divide-gray-100">
-          {/* SSO — always read-only */}
-          <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">SSO</span>
-            <span className="text-sm text-gray-800 text-right truncate font-mono">{actor.ssoId}</span>
-          </li>
-          {/* Editable fields */}
-          <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Name</span>
-            {editing ? (
-              <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-40 focus:outline-none focus:ring-2 focus:ring-brand-200" />
-            ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{draft.name}</span>
-            )}
-          </li>
-          <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Gender</span>
-            {editing ? (
-              <select value={draft.gender} onChange={(e) => setDraft((d) => ({ ...d, gender: e.target.value as "men" | "women" }))}
-                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-brand-200">
-                <option value="men">Male</option>
-                <option value="women">Female</option>
-              </select>
-            ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{draft.gender === "men" ? "Male" : draft.gender === "women" ? "Female" : "—"}</span>
-            )}
-          </li>
+          {readonlyFields.map(({ label, value }) => (
+            <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+              <span className="text-sm text-gray-800 text-right truncate">{value}</span>
+            </li>
+          ))}
+          {/* Nationality (editable dropdown) */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-xs text-gray-400 flex-shrink-0">Nationality</span>
             {editing ? (
-              <input value={draft.nationality} onChange={(e) => setDraft((d) => ({ ...d, nationality: e.target.value }))}
-                className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-40 focus:outline-none focus:ring-2 focus:ring-brand-200" />
+              <select value={form.nationality} onChange={(e) => onForm({ ...form, nationality: e.target.value })} className={selectCls}>
+                {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
             ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{`${actor.flag} ${draft.nationality}`}</span>
+              <span className="text-sm text-gray-800 text-right truncate">{flag} {nationality}</span>
             )}
           </li>
+          {/* Home Show (editable) */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Height</span>
+            <span className="text-xs text-gray-400 flex-shrink-0">Home Show</span>
             {editing ? (
-              <div className="flex items-center gap-1">
-                <input value={draft.height} onChange={(e) => setDraft((d) => ({ ...d, height: e.target.value }))}
-                  type="number" className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-20 focus:outline-none focus:ring-2 focus:ring-brand-200" />
-                <span className="text-xs text-gray-400">cm</span>
-              </div>
+              <select value={form.homeShow} onChange={(e) => onForm({ ...form, homeShow: e.target.value, homeRole: "" })} className={selectCls}>
+                <option value="">Select show</option>
+                {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
             ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{draft.height} cm</span>
+              <span className="text-sm text-gray-800 text-right truncate">{homeShow || "—"}</span>
             )}
           </li>
+          {/* Home Role (editable) */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Weight</span>
+            <span className="text-xs text-gray-400 flex-shrink-0">Home Role</span>
             {editing ? (
-              <div className="flex items-center gap-1">
-                <input value={draft.weight} onChange={(e) => setDraft((d) => ({ ...d, weight: e.target.value }))}
-                  type="number" className="text-sm text-gray-800 text-right border border-gray-200 rounded-lg px-2 py-1 w-20 focus:outline-none focus:ring-2 focus:ring-brand-200" />
-                <span className="text-xs text-gray-400">kg</span>
-              </div>
+              <select value={form.homeRole} onChange={(e) => onForm({ ...form, homeRole: e.target.value })} disabled={!form.homeShow} className={selectCls}>
+                <option value="">Select role</option>
+                {formRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+              </select>
             ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{draft.weight} kg</span>
+              <span className="text-sm text-gray-800 text-right truncate">{homeRole || "—"}</span>
             )}
           </li>
-          {/* Home Show & Role — read-only, edited from list */}
-          {readOnlyFields.slice(1).map(({ label, value }) => (
-            <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
-              <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
-              <span className="text-sm text-gray-500 text-right truncate">{value}</span>
-            </li>
-          ))}
         </ul>
       </div>
     </div>
@@ -991,41 +880,35 @@ function ActorDetailDrawer({
   onClose: () => void;
   onOpenSection: (s: "basic" | null) => void;
 }) {
+  const today = new Date().toISOString().split("T")[0];
   const headshotInputRef = useRef<HTMLInputElement>(null);
   const [headshotUrl, setHeadshotUrl] = useState(actor.photoUrl);
-  const { statusOf, setStatusFor } = useActorStatus();
+  const { statusOf } = useActorStatus();
   const currentStatus = statusOf(actor);
-  const [statusMenuAnchor, setStatusMenuAnchor] = useState<{ top: number; left: number } | null>(null);
 
   const [collapsed, setCollapsed] = useState({
     skills: false, attachment: false, showRole: false, event: false,
   });
   const toggle = (s: keyof typeof collapsed) => setCollapsed((p) => ({ ...p, [s]: !p[s] }));
-  const [offboardOpen, setOffboardOpen] = useState(false);
-
-  // ── Basic Info inline editing (desktop) ──────────────────────────────────
-  const [editingBasicInfo, setEditingBasicInfo] = useState(false);
-  const [basicDraft, setBasicDraft] = useState({
-    name: actor.name,
-    gender: actor.gender,
-    nationality: actor.nationality,
-    height: String(actor.height),
-    weight: String(actor.weight),
-  });
-
-  function saveBasicInfo() {
-    // commit draft (demo: just close edit mode)
-    setEditingBasicInfo(false);
-  }
-
-  function cancelBasicInfo() {
-    setBasicDraft({ name: actor.name, gender: actor.gender, nationality: actor.nationality, height: String(actor.height), weight: String(actor.weight) });
-    setEditingBasicInfo(false);
-  }
-
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const askConfirm = (title: string, message: string, onConfirm: () => void) =>
     setConfirm({ title, message, onConfirm });
+
+  // ── Basic Info (editable: nationality dropdown + home show/role) ───────────
+  const [nationality, setNationality] = useState(actor.nationality);
+  const [homeShow, setHomeShow] = useState(actor.homeShow ?? "");
+  const [homeRole, setHomeRole] = useState(actor.homeRole ?? "");
+  const flag = NATIONALITY_FLAGS[nationality] ?? actor.flag;
+  const [editingBasic, setEditingBasic] = useState(false);
+  const [basicForm, setBasicForm] = useState({ nationality: actor.nationality, homeShow: actor.homeShow ?? "", homeRole: actor.homeRole ?? "" });
+  const basicFormRoles = ALL_SHOWS.find((s) => s.name === basicForm.homeShow)?.roles ?? [];
+  function startEditBasic() {
+    setBasicForm({ nationality, homeShow, homeRole });
+    setEditingBasic(true);
+  }
+
+  // Inactivate dialog (Show & Role / Event) carries an editable expiry date.
+  const [inactivateTarget, setInactivateTarget] = useState<{ kind: "showRole" | "event"; id: string; label: string } | null>(null);
 
   // ── Skill section ──────────────────────────────────────────────────────
   const [skillEntries, setSkillEntries] = useState<SkillEntry[]>(actor.skillEntries ?? []);
@@ -1067,7 +950,7 @@ function ActorDetailDrawer({
     setAddingSkill(false);
   }
 
-  // ── Attachment section (0522 spec: merged Portfolio + Attachment → photo gallery) ──
+  // ── Show Photos section (photo gallery; titled "Show Photos" per 0527 spec) ──
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [addingMedia, setAddingMedia] = useState(false);
@@ -1122,41 +1005,90 @@ function ActorDetailDrawer({
   const [eventRecords, setEventRecords] = useState<EventRecord[]>(actor.eventRecords ?? []);
 
   const [addingShowRole, setAddingShowRole] = useState(false);
-  const [showRoleForm, setShowRoleForm] = useState({ show: "", role: "", roleType: "home" as "home" | "swing" });
+  const [showRoleForm, setShowRoleForm] = useState({ show: "", role: "", roleType: "home" as "home" | "swing", date: today });
   const showRoleFormRoles = ALL_SHOWS.find((s) => s.name === showRoleForm.show)?.roles ?? [];
 
   function saveShowRole() {
     if (!showRoleForm.show || !showRoleForm.role) { setAddingShowRole(false); return; }
     setShowRoleRecords((p) => [...p, {
       id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role,
-      roleType: showRoleForm.roleType, date: new Date().toISOString().split("T")[0], status: "active",
+      roleType: showRoleForm.roleType, date: showRoleForm.date || today, status: "active",
     }]);
-    setShowRoleForm({ show: "", role: "", roleType: "home" });
+    setShowRoleForm({ show: "", role: "", roleType: "home", date: today });
     setAddingShowRole(false);
   }
 
   function cancelShowRole() {
-    setShowRoleForm({ show: "", role: "", roleType: "home" });
+    setShowRoleForm({ show: "", role: "", roleType: "home", date: today });
     setAddingShowRole(false);
   }
 
   const [addingEvent, setAddingEvent] = useState(false);
-  const [eventForm, setEventForm] = useState({ eventName: "", roleName: "" });
+  const [eventForm, setEventForm] = useState({ eventName: "", roleName: "", date: today });
   const eventFormRoles = rolesForEvent(eventForm.eventName);
 
   function saveEvent() {
     if (!eventForm.eventName || !eventForm.roleName) { setAddingEvent(false); return; }
     setEventRecords((p) => [...p, {
       id: `ev-${Date.now()}`, eventName: eventForm.eventName, roleName: eventForm.roleName,
-      startDate: "", endDate: "", status: "active",
+      startDate: eventForm.date || today, endDate: "", status: "active",
     }]);
-    setEventForm({ eventName: "", roleName: "" });
+    setEventForm({ eventName: "", roleName: "", date: today });
     setAddingEvent(false);
   }
 
   function cancelEvent() {
-    setEventForm({ eventName: "", roleName: "" });
+    setEventForm({ eventName: "", roleName: "", date: today });
     setAddingEvent(false);
+  }
+
+  // Commit a Basic Info edit. Reassigning the home show/role inactivates the
+  // existing active home record (a performer may have only one active home).
+  function commitBasic() {
+    const f = basicForm;
+    const homeChanged = f.homeShow !== homeShow || f.homeRole !== homeRole;
+    const apply = () => {
+      setNationality(f.nationality);
+      if (homeChanged) {
+        setShowRoleRecords((prev) => {
+          const next = prev.map((r) =>
+            r.roleType === "home" && r.status === "active"
+              ? { ...r, status: "inactive" as const, endDate: today }
+              : r);
+          if (f.homeShow && f.homeRole) {
+            next.unshift({
+              id: `sr-${Date.now()}`, show: f.homeShow, role: f.homeRole,
+              roleType: "home", date: today, status: "active",
+            });
+          }
+          return next;
+        });
+        setHomeShow(f.homeShow);
+        setHomeRole(f.homeRole);
+      }
+      setEditingBasic(false);
+    };
+    const hasActiveHome = !!homeShow && showRoleRecords.some((r) => r.roleType === "home" && r.status === "active");
+    if (homeChanged && hasActiveHome) {
+      askConfirm(
+        "Reassign Home Show & Role",
+        `This performer already has an active home show & role (${homeShow} / ${homeRole}). Assigning a new one will set the existing record to inactive. Continue?`,
+        apply,
+      );
+    } else {
+      apply();
+    }
+  }
+
+  // Apply an inactivation (Show & Role / Event) with the chosen expiry date.
+  function commitInactivate(endDate: string) {
+    if (!inactivateTarget) return;
+    if (inactivateTarget.kind === "showRole") {
+      setShowRoleRecords((p) => p.map((r) => r.id === inactivateTarget.id ? { ...r, status: "inactive", endDate } : r));
+    } else {
+      setEventRecords((p) => p.map((r) => r.id === inactivateTarget.id ? { ...r, status: "inactive", endDate } : r));
+    }
+    setInactivateTarget(null);
   }
 
   const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300";
@@ -1178,10 +1110,9 @@ function ActorDetailDrawer({
           onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
         />
       )}
-      {offboardOpen && (
-        <OffboardingDialog count={1}
-          onClose={() => setOffboardOpen(false)}
-          onConfirm={() => setStatusFor([actor.id], "Inactive")} />
+      {inactivateTarget && (
+        <InactivateDialog label={inactivateTarget.label} defaultDate={today}
+          onCancel={() => setInactivateTarget(null)} onConfirm={commitInactivate} />
       )}
       <input ref={headshotInputRef} type="file" accept="image/*" className="hidden"
         onChange={(e) => {
@@ -1189,19 +1120,13 @@ function ActorDetailDrawer({
           if (f) setHeadshotUrl(URL.createObjectURL(f));
           e.target.value = "";
         }} />
-      {statusMenuAnchor && (
-        <MarkStatusMenu anchor={statusMenuAnchor} current={currentStatus}
-          onClose={() => setStatusMenuAnchor(null)}
-          onPick={(s) => {
-            if (s === "Inactive" && currentStatus !== "Inactive") {
-              setOffboardOpen(true);
-            } else {
-              setStatusFor([actor.id], s);
-            }
-          }} />
-      )}
       {section === "basic" && (
-        <BasicInfoMobile actor={actor} headshotUrl={headshotUrl} onBack={() => onOpenSection(null)} />
+        <BasicInfoMobile
+          actor={actor} headshotUrl={headshotUrl} status={currentStatus}
+          nationality={nationality} flag={flag} homeShow={homeShow} homeRole={homeRole}
+          editing={editingBasic} form={basicForm} onForm={setBasicForm}
+          onEdit={startEditBasic} onCancelEdit={() => setEditingBasic(false)} onSave={commitBasic}
+          onBack={() => onOpenSection(null)} />
       )}
       <div className="hidden md:block fixed inset-0 z-40 bg-black/30" onClick={onClose} />
       <div className={`fixed inset-0 md:inset-y-0 md:right-0 md:left-auto z-50 md:w-full md:max-w-[528px] bg-white md:shadow-2xl flex flex-col ${section === "basic" ? "hidden md:flex" : ""}`}>
@@ -1239,16 +1164,14 @@ function ActorDetailDrawer({
                 <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
               </button>
               <p className="text-xs text-gray-600 truncate">
-                {(actor.homeShow ?? "—")} <span className="text-gray-300 mx-0.5">&amp;</span> {(actor.homeRole ?? "—")}
+                {(homeShow || "—")} <span className="text-gray-300 mx-0.5">&amp;</span> {(homeRole || "—")}
               </p>
               <p className="text-xs text-gray-500">
                 {actor.height} cm / {actor.weight} kg
               </p>
-              <button type="button" aria-label="Change status"
-                onClick={() => setStatusMenuAnchor({ top: 0, left: 0 })}
-                className="inline-flex self-start mt-0.5">
+              <span className="inline-flex self-start mt-0.5">
                 <StatusBadge status={currentStatus} />
-              </button>
+              </span>
               <div className="flex flex-wrap items-center gap-1 mt-0.5">
                 {skillEntries.map((e) => (
                   <span
@@ -1308,91 +1231,91 @@ function ActorDetailDrawer({
                 <span className="text-xl font-bold text-white leading-tight truncate flex-1 min-w-0">{actor.name}</span>
                 <ChevronRight className="md:hidden w-5 h-5 text-white/80 flex-shrink-0" />
               </button>
-              <button type="button" aria-label="Change status"
-                onClick={(e) => {
-                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                  setStatusMenuAnchor({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
-                }}
-                className="hidden md:inline-flex flex-shrink-0">
+              <span className="hidden md:inline-flex flex-shrink-0">
                 <StatusBadge status={currentStatus} />
-              </button>
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Home Show & Role — removed duplicate accent strip per 0525 spec (kept in Basic Info only) */}
-
-        {/* Basic Info — single row (desktop only). Per 0525 spec all fields editable
-            except SSO (read-only) and Home Show/Role (edited in list). */}
-        <div className="hidden md:block flex-shrink-0 border-b border-gray-100">
-          <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50/60">
-            <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Basic Info</span>
-            {editingBasicInfo ? (
-              <div className="flex items-center gap-1.5">
-                <button onClick={cancelBasicInfo} className="text-[10px] text-gray-500 hover:text-gray-700 px-2 py-0.5 border border-gray-200 rounded">Cancel</button>
-                <button onClick={saveBasicInfo} className="text-[10px] text-white bg-brand-500 hover:bg-brand-600 px-2 py-0.5 rounded font-medium">Save</button>
+        {/* Home Show & Role accent strip (desktop only; mobile shows it in the card header) */}
+        <div className="hidden md:flex flex-shrink-0 px-5 py-2.5 bg-brand-50 border-b border-brand-100 items-center justify-between gap-2">
+          {editingBasic ? (
+            <div className="flex-1 grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] uppercase tracking-wide text-brand-600 font-semibold mb-1">Home Show</label>
+                <select value={basicForm.homeShow}
+                  onChange={(e) => setBasicForm((f) => ({ ...f, homeShow: e.target.value, homeRole: "" }))}
+                  className={inputCls + " bg-white"}>
+                  <option value="">Select show</option>
+                  {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
               </div>
-            ) : (
-              <button onClick={() => setEditingBasicInfo(true)} className="text-[10px] text-brand-500 hover:text-brand-700 flex items-center gap-0.5 font-medium">
-                <Pencil className="w-2.5 h-2.5" />Edit
+              <div>
+                <label className="block text-[10px] uppercase tracking-wide text-brand-600 font-semibold mb-1">Home Role</label>
+                <select value={basicForm.homeRole}
+                  onChange={(e) => setBasicForm((f) => ({ ...f, homeRole: e.target.value }))}
+                  disabled={!basicForm.homeShow}
+                  className={inputCls + " bg-white disabled:opacity-50"}>
+                  <option value="">Select role</option>
+                  {basicFormRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-wide text-brand-600 font-semibold">Home Show & Role</span>
+              <span className="text-sm font-bold text-brand-700 truncate">
+                {homeShow || "—"} <span className="text-brand-400 mx-1">&</span> {homeRole || "—"}
+              </span>
+            </div>
+          )}
+          {editingBasic ? (
+            <div className="flex items-center gap-1.5 flex-shrink-0 self-end">
+              <button onClick={() => setEditingBasic(false)}
+                className="text-xs px-2.5 py-1 border border-gray-200 bg-white rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={commitBasic}
+                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg hover:bg-brand-600">
+                <Check className="w-3 h-3" />Save
               </button>
+            </div>
+          ) : (
+            <button onClick={startEditBasic}
+              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-100/60 flex-shrink-0">
+              <Pencil className="w-3 h-3" />Edit
+            </button>
+          )}
+        </div>
+
+        {/* Basic Info — single row (desktop only): SSO / Gender / Nationality / Height / Weight. */}
+        <div className="hidden md:grid flex-shrink-0 grid-cols-5 border-b border-gray-100">
+          <div className="px-2 py-2.5 text-center border-r border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-0.5">SSO</p>
+            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate font-mono">{actor.ssoId}</p>
+          </div>
+          <div className="px-2 py-2.5 text-center border-r border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-0.5">Gender</p>
+            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—"}</p>
+          </div>
+          <div className="px-2 py-2.5 text-center border-r border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-0.5">Nationality</p>
+            {editingBasic ? (
+              <select value={basicForm.nationality}
+                onChange={(e) => setBasicForm((f) => ({ ...f, nationality: e.target.value }))}
+                className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200">
+                {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            ) : (
+              <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{flag} {nationality}</p>
             )}
           </div>
-          <div className="grid grid-cols-5">
-            {/* SSO — always read-only */}
-            <div className="px-2 py-2.5 text-center border-r border-gray-100">
-              <p className="text-[10px] text-gray-400 mb-0.5">SSO</p>
-              <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate font-mono">{actor.ssoId}</p>
-            </div>
-            {/* Gender */}
-            <div className="px-2 py-2.5 text-center border-r border-gray-100">
-              <p className="text-[10px] text-gray-400 mb-0.5">Gender</p>
-              {editingBasicInfo ? (
-                <select value={basicDraft.gender} onChange={(e) => setBasicDraft((d) => ({ ...d, gender: e.target.value as "men" | "women" }))}
-                  className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-brand-200">
-                  <option value="men">Male</option>
-                  <option value="women">Female</option>
-                </select>
-              ) : (
-                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.gender === "men" ? "Male" : basicDraft.gender === "women" ? "Female" : "—"}</p>
-              )}
-            </div>
-            {/* Nationality */}
-            <div className="px-2 py-2.5 text-center border-r border-gray-100">
-              <p className="text-[10px] text-gray-400 mb-0.5">Nationality</p>
-              {editingBasicInfo ? (
-                <input value={basicDraft.nationality} onChange={(e) => setBasicDraft((d) => ({ ...d, nationality: e.target.value }))}
-                  className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-full text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
-              ) : (
-                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{`${actor.flag} ${basicDraft.nationality}`}</p>
-              )}
-            </div>
-            {/* Height */}
-            <div className="px-2 py-2.5 text-center border-r border-gray-100">
-              <p className="text-[10px] text-gray-400 mb-0.5">Height</p>
-              {editingBasicInfo ? (
-                <div className="flex items-center justify-center gap-0.5">
-                  <input value={basicDraft.height} onChange={(e) => setBasicDraft((d) => ({ ...d, height: e.target.value }))}
-                    type="number" className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-12 text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
-                  <span className="text-[10px] text-gray-400">cm</span>
-                </div>
-              ) : (
-                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.height} cm</p>
-              )}
-            </div>
-            {/* Weight */}
-            <div className="px-2 py-2.5 text-center">
-              <p className="text-[10px] text-gray-400 mb-0.5">Weight</p>
-              {editingBasicInfo ? (
-                <div className="flex items-center justify-center gap-0.5">
-                  <input value={basicDraft.weight} onChange={(e) => setBasicDraft((d) => ({ ...d, weight: e.target.value }))}
-                    type="number" className="text-[11px] font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 w-12 text-center focus:outline-none focus:ring-1 focus:ring-brand-200" />
-                  <span className="text-[10px] text-gray-400">kg</span>
-                </div>
-              ) : (
-                <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{basicDraft.weight} kg</p>
-              )}
-            </div>
+          <div className="px-2 py-2.5 text-center border-r border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-0.5">Height</p>
+            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.height} cm</p>
+          </div>
+          <div className="px-2 py-2.5 text-center">
+            <p className="text-[10px] text-gray-400 mb-0.5">Weight</p>
+            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.weight} kg</p>
           </div>
         </div>
 
@@ -1540,7 +1463,7 @@ function ActorDetailDrawer({
           <div className="border-b border-gray-100" style={{ order: 4 }}>
             <input ref={portfolioInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePortfolioPick} />
             <SectionHeader
-              title="Attachment" count={mediaFiles.length}
+              title="Show Photos" count={mediaFiles.length}
               editing={addingMedia} collapsed={collapsed.attachment}
               onToggleCollapse={() => toggle("attachment")}
               onAdd={() => setAddingMedia(true)} addLabel="Add"
@@ -1596,7 +1519,7 @@ function ActorDetailDrawer({
                             className="absolute inset-0 opacity-0 group-hover/media:opacity-100 bg-black/20 transition-opacity flex items-center justify-center">
                             <Eye className="w-5 h-5 text-white drop-shadow" />
                           </button>
-                          <button onClick={() => askConfirm("Remove photo", "This photo will be removed from the attachment gallery. Continue?",
+                          <button onClick={() => askConfirm("Remove photo", "This photo will be removed from Show Photos. Continue?",
                             () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)))}
                             className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/media:opacity-100">
                             <X className="w-3 h-3" />
@@ -1627,7 +1550,7 @@ function ActorDetailDrawer({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          askConfirm("Remove photo", "This photo will be removed from the attachment gallery. Continue?",
+                          askConfirm("Remove photo", "This photo will be removed from Show Photos. Continue?",
                             () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)));
                         }}
                         aria-label="Remove media"
@@ -1666,7 +1589,7 @@ function ActorDetailDrawer({
               <div className="px-5 pb-4 space-y-2">
                 {addingShowRole && (
                   <div className="p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div>
                         <label className={labelCls}>Show</label>
                         <select value={showRoleForm.show}
@@ -1694,6 +1617,12 @@ function ActorDetailDrawer({
                           <option value="home">Home</option>
                           <option value="swing">Swing</option>
                         </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Effective Date</label>
+                        <input type="date" value={showRoleForm.date}
+                          onChange={(e) => setShowRoleForm((f) => ({ ...f, date: e.target.value }))}
+                          className={inputCls + " bg-white"} />
                       </div>
                     </div>
                   </div>
@@ -1731,11 +1660,16 @@ function ActorDetailDrawer({
                           {inactive ? (
                             <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
                           ) : (
-                            <button onClick={() => askConfirm("Set inactive", `Set ${rec.show} / ${rec.role} as inactive?`,
-                              () => setShowRoleRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                            <button onClick={() => setInactivateTarget({ kind: "showRole", id: rec.id, label: `${rec.show} / ${rec.role}` })}
                               className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0">Set inactive</button>
                           )}
                         </div>
+                        {(rec.date && rec.date !== "—") || rec.endDate ? (
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            {rec.date && rec.date !== "—" ? `Effective ${rec.date}` : ""}
+                            {rec.endDate ? `${rec.date && rec.date !== "—" ? " · " : ""}Expired ${rec.endDate}` : ""}
+                          </p>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -1757,11 +1691,11 @@ function ActorDetailDrawer({
               <div className="px-5 pb-4 space-y-2">
                 {addingEvent && (
                   <div className="p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
                         <label className={labelCls}>Event Name</label>
                         <select value={eventForm.eventName}
-                          onChange={(e) => setEventForm({ eventName: e.target.value, roleName: "" })}
+                          onChange={(e) => setEventForm((f) => ({ ...f, eventName: e.target.value, roleName: "" }))}
                           className={inputCls + " bg-white"}>
                           <option value="">Select event</option>
                           {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -1776,6 +1710,12 @@ function ActorDetailDrawer({
                           <option value="">Select role</option>
                           {eventFormRoles.map((r) => <option key={r} value={r}>{r}</option>)}
                         </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Effective Date</label>
+                        <input type="date" value={eventForm.date}
+                          onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))}
+                          className={inputCls + " bg-white"} />
                       </div>
                     </div>
                   </div>
@@ -1796,11 +1736,16 @@ function ActorDetailDrawer({
                         {inactive ? (
                           <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
                         ) : (
-                          <button onClick={() => askConfirm("Set inactive", `Set "${rec.eventName} & ${rec.roleName}" as inactive?`,
-                            () => setEventRecords((p) => p.map((r) => r.id === rec.id ? { ...r, status: "inactive" } : r)))}
+                          <button onClick={() => setInactivateTarget({ kind: "event", id: rec.id, label: `${rec.eventName} & ${rec.roleName}` })}
                             className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors flex-shrink-0">Set inactive</button>
                         )}
                       </div>
+                      {rec.startDate || rec.endDate ? (
+                        <p className="mt-1 text-[10px] text-gray-400">
+                          {rec.startDate ? `Effective ${rec.startDate}` : ""}
+                          {rec.endDate ? `${rec.startDate ? " · " : ""}Expired ${rec.endDate}` : ""}
+                        </p>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1979,7 +1924,7 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
       columns={PERFORMER_IMPORT_COLUMNS}
       sample={["20017233", "Arthur William Bennett", "", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
       fileBaseName="performer_onboarding"
-      hint={<>{" "}Imported data defaults to Active status. Use phone number if no SSO. Replace with official SSO after onboarding.</>}
+      hint={<>{" "}Override fields: gender, nationality, height, weight, home show, home role. Leave SSO blank if not yet issued — fill the phone number column instead; the row appears under <span className="font-semibold">SSO Binding</span> until bound.</>}
       validateRow={(row) => {
         const sso = String(row[0] ?? "").trim();
         const phone = String(row[2] ?? "").trim();
@@ -1993,73 +1938,9 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
   );
 }
 
-// ── Event Experience Import (per 0522 spec: SSO / event code / role code) ──
-const EVENT_IMPORT_COLUMNS: ImportColumn[] = [
+// ── Update Basic Info Import (per 0527 spec) ───────────────────────────────
+const UPDATE_BASIC_COLUMNS: ImportColumn[] = [
   { key: "SSO", required: true },
-  { key: "Event Code", required: true },
-  { key: "Role Code", required: true },
-];
-
-function EventImportModal({ onClose }: { onClose: () => void }) {
-  return (
-    <ExcelImportModal
-      title="Import Event Experience"
-      subtitle="Add event experience records in bulk (PC only)"
-      columns={EVENT_IMPORT_COLUMNS}
-      sample={["20017233", "EVT-2025-HUAPI", "ROLE-HEIBAI"]}
-      fileBaseName="event_experience"
-      hint={<>{" "}Add new rows for multiple entries. Duplicate records will be removed automatically.</>}
-      onClose={onClose}
-    />
-  );
-}
-
-// ── Skill Import (per 0522 spec: SSO / skillset type / skill) ──
-const SKILL_IMPORT_COLUMNS: ImportColumn[] = [
-  { key: "SSO", required: true },
-  { key: "Skillset Type", required: true },
-  { key: "Skill", required: true },
-];
-
-function SkillImportModal({ onClose }: { onClose: () => void }) {
-  return (
-    <ExcelImportModal
-      title="Import Skills"
-      subtitle="Add performer skills in bulk (PC only)"
-      columns={SKILL_IMPORT_COLUMNS}
-      sample={["20017233", "舞蹈", "拉丁舞"]}
-      fileBaseName="skill"
-      hint={<>{" "}Add new rows for multiple entries. Duplicate records will be removed automatically.</>}
-      onClose={onClose}
-    />
-  );
-}
-
-// ── Swing Show & Role Import (per 0522 spec: SSO / show name / role name) ──
-const SWING_IMPORT_COLUMNS: ImportColumn[] = [
-  { key: "SSO", required: true },
-  { key: "Show Name", required: true },
-  { key: "Role Name", required: true },
-];
-
-function SwingImportModal({ onClose }: { onClose: () => void }) {
-  return (
-    <ExcelImportModal
-      title="Import Swing Show & Role"
-      subtitle="Assign swing shows in bulk (PC only)"
-      columns={SWING_IMPORT_COLUMNS}
-      sample={["20017233", "UOP", "Dragon Dance"]}
-      fileBaseName="swing_show_role"
-      hint={<>{" "}Only Swing Show &amp; Role data can be imported.</>}
-      onClose={onClose}
-    />
-  );
-}
-
-// ── Update Basic Info Import (per 0525 spec) ─────────────────────────────
-const BASIC_INFO_IMPORT_COLUMNS: ImportColumn[] = [
-  { key: "SSO", required: true },
-  { key: "Name", required: false },
   { key: "Nationality", required: false },
   { key: "Gender", required: false },
   { key: "Height (cm)", required: false },
@@ -2068,22 +1949,18 @@ const BASIC_INFO_IMPORT_COLUMNS: ImportColumn[] = [
   { key: "Home Role", required: false },
 ];
 
-function BasicInfoImportModal({ onClose }: { onClose: () => void }) {
+function UpdateBasicInfoModal({ onClose }: { onClose: () => void }) {
   return (
     <ExcelImportModal
       title="Update Basic Info"
-      subtitle="Batch update performer basic info (PC only)"
-      columns={BASIC_INFO_IMPORT_COLUMNS}
-      sample={["20017233", "Arthur Bennett", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
+      subtitle="Update existing performers' basic info in bulk (PC only)"
+      columns={UPDATE_BASIC_COLUMNS}
+      sample={["20017233", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
       fileBaseName="update_basic_info"
-      hint={<>{" "}SSO is required. Include at least one other field to update. Fields left blank will not be overwritten.</>}
+      hint={<>{" "}Matched to existing performers by SSO. Only non-empty cells overwrite — blanks leave the current value unchanged.</>}
       validateRow={(row) => {
         const sso = String(row[0] ?? "").trim();
-        if (!sso) return "SSO is required";
-        if (!/^\d{8}$/.test(sso)) return "SSO must be 8 digits";
-        // At least one other field must be present
-        const hasOther = row.slice(1).some((v) => String(v ?? "").trim());
-        if (!hasOther) return "At least one field besides SSO is required";
+        if (!/^2\d{7}$/.test(sso)) return "SSO must be an 8-digit number starting with 2";
         return null;
       }}
       onClose={onClose}
@@ -2091,42 +1968,62 @@ function BasicInfoImportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── SSO Binding ────────────────────────────────────────────────────────────
-// Per 0522 spec: performers imported without an SSO appear here with their
-// placeholder phone number. The user fills in the real SSO and binds the row.
-// The system lists everyone whose ssoId isn't the standard 8-digit "2…" form.
+// ── Replace SSO (per 0527 spec) ─────────────────────────────────────────────
+// Lists every performer whose SSO is NOT an 8-digit "2…" id. The user types a
+// replacement per row (or downloads a template, fills it, and re-imports). New
+// SSOs must satisfy the 8-digit "2…" rule.
+const VALID_SSO = /^2\d{7}$/;
+
 function SsoReplacementModal({ onClose }: { onClose: () => void }) {
-  const [oldSso, setOldSso] = useState("");
-  const [newSso, setNewSso] = useState("");
-  const [replacements, setReplacements] = useState<{ name: string; oldSso: string; newSso: string }[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
+  const invalidActors = useMemo(() => ALL_ACTORS_BY_SSO.filter((a) => !VALID_SSO.test(a.ssoId)), []);
+  const [edits, setEdits] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState<Set<number>>(new Set());
 
-  // Fuzzy search: match by SSO prefix or name substring
-  const suggestions = useMemo(() => {
-    const q = oldSso.trim().toLowerCase();
-    if (!q) return [];
-    return ALL_ACTORS_BY_SSO.filter((a) =>
-      a.ssoId.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)
-    ).slice(0, 8);
-  }, [oldSso]);
-
-  const matchedActor = useMemo(() => {
-    // Exact match on 8-digit SSO
-    if (/^\d{8}$/.test(oldSso)) return ALL_ACTORS_BY_SSO.find((a) => a.ssoId === oldSso) ?? null;
-    return null;
-  }, [oldSso]);
-
-  function selectSuggestion(actor: Actor) {
-    setOldSso(actor.ssoId);
-    setShowSuggestions(false);
+  function downloadTemplate() {
+    const header = ["SSO (old) *", "New SSO *", "Name"];
+    const rows = invalidActors.map((a) => [a.ssoId, "", a.name]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "replace_sso");
+    XLSX.writeFile(wb, "replace_sso_template.xlsx");
   }
 
-  function doReplace() {
-    if (!matchedActor || !/^\d{8}$/.test(newSso) || oldSso === newSso) return;
-    setReplacements((p) => [...p, { name: matchedActor.name, oldSso, newSso }]);
-    setOldSso("");
-    setNewSso("");
+  function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const wb = XLSX.read(evt.target?.result, { type: "binary" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = (XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 }) as string[][]).slice(1);
+      setEdits((prev) => {
+        const next = { ...prev };
+        rows.forEach((row) => {
+          const oldSso = String(row[0] ?? "").trim();
+          const newSso = String(row[1] ?? "").trim();
+          const actor = invalidActors.find((a) => a.ssoId === oldSso);
+          if (actor && newSso) next[actor.id] = newSso;
+        });
+        return next;
+      });
+    };
+    reader.readAsBinaryString(f);
+    e.target.value = "";
   }
+
+  function saveAll() {
+    setSaved((prev) => {
+      const next = new Set(prev);
+      invalidActors.forEach((a) => {
+        if (VALID_SSO.test((edits[a.id] ?? "").trim())) next.add(a.id);
+      });
+      return next;
+    });
+  }
+
+  const pending = invalidActors.filter((a) => !saved.has(a.id));
+  const readyCount = pending.filter((a) => VALID_SSO.test((edits[a.id] ?? "").trim())).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -2134,164 +2031,181 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">Replace SSO</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Replace a performer&apos;s existing SSO with a new one.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Performers whose SSO isn&apos;t an 8-digit number starting with 2.</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
         <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-4 overflow-y-auto">
-          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-            <div className="flex-1 w-full sm:w-auto relative">
-              <label className="block text-xs text-gray-400 mb-1">Old SSO</label>
-              <input value={oldSso} onChange={(e) => { setOldSso(e.target.value); setShowSuggestions(true); }}
-                onFocus={() => setShowSuggestions(true)}
-                placeholder="Search by SSO or name…" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
-              {showSuggestions && suggestions.length > 0 && !matchedActor && (
-                <div className="absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {suggestions.map((a) => (
-                    <button key={a.id} type="button" onClick={() => selectSuggestion(a)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-sm">
-                      <span className="font-mono text-gray-500 text-xs">{a.ssoId}</span>
-                      <span className="text-gray-800">{a.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {matchedActor && (
-                <p className="mt-1 text-xs text-emerald-600">{matchedActor.name}</p>
-              )}
-              {oldSso && /^\d{8}$/.test(oldSso) && !matchedActor && (
-                <p className="mt-1 text-xs text-red-500">No performer found</p>
-              )}
-            </div>
-            <span className="hidden sm:block text-gray-300 text-lg pb-1">&rarr;</span>
-            <div className="flex-1 w-full sm:w-auto">
-              <label className="block text-xs text-gray-400 mb-1">New SSO</label>
-              <input value={newSso} onChange={(e) => setNewSso(e.target.value)}
-                placeholder="2xxxxxxx" className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-mono w-full focus:outline-none focus:ring-2 focus:ring-brand-200" />
-            </div>
-            <button onClick={doReplace}
-              disabled={!matchedActor || !/^\d{8}$/.test(newSso) || oldSso === newSso}
-              className="h-9 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-40 whitespace-nowrap">
-              Replace
+          <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+            <FileSpreadsheet className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <p className="flex-1 text-xs text-blue-600">
+              Edit each row inline, or download the template (prefilled with old SSOs) and re-import to fill new SSOs in bulk.
+            </p>
+            <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImport} />
+            <button onClick={() => importRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-xs font-medium hover:bg-blue-50 transition-colors flex-shrink-0">
+              <Upload className="w-3.5 h-3.5" />Import
+            </button>
+            <button onClick={downloadTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors flex-shrink-0">
+              <Download className="w-3.5 h-3.5" />Template
             </button>
           </div>
 
-          {replacements.length > 0 && (
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Completed Replacements</h3>
-              <div className="overflow-auto rounded-xl border border-gray-100">
-                <table className="w-full text-xs">
-                  <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50">
-                    <tr>
-                      <th className="text-left px-3 py-2">Name</th>
-                      <th className="text-left px-3 py-2">Old SSO</th>
-                      <th className="px-2 py-2"></th>
-                      <th className="text-left px-3 py-2">New SSO</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {replacements.map((r, i) => (
-                      <tr key={i} className="bg-emerald-50/40">
-                        <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                        <td className="px-3 py-2 font-mono text-gray-400 line-through">{r.oldSso}</td>
-                        <td className="px-2 py-2 text-gray-300">&rarr;</td>
-                        <td className="px-3 py-2 font-mono text-emerald-600 font-medium">{r.newSso}</td>
+          {invalidActors.length === 0 ? (
+            <p className="text-sm text-gray-300 py-8 text-center">All performers already have a valid SSO.</p>
+          ) : (
+            <div className="overflow-auto rounded-xl border border-gray-100">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2">Name</th>
+                    <th className="text-left px-3 py-2">Current SSO</th>
+                    <th className="text-left px-3 py-2 w-44">New SSO</th>
+                    <th className="px-2 py-2 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {invalidActors.map((a) => {
+                    const val = edits[a.id] ?? "";
+                    const isSaved = saved.has(a.id);
+                    const valid = VALID_SSO.test(val.trim());
+                    return (
+                      <tr key={a.id} className={isSaved ? "bg-emerald-50/40" : ""}>
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">{a.name}</td>
+                        <td className="px-3 py-2 font-mono text-gray-400">{a.ssoId}</td>
+                        <td className="px-3 py-2">
+                          {isSaved ? (
+                            <span className="font-mono text-emerald-600 font-medium">{val}</span>
+                          ) : (
+                            <input value={val} onChange={(e) => setEdits((p) => ({ ...p, [a.id]: e.target.value }))}
+                              placeholder="2xxxxxxx"
+                              className={`h-8 px-2 border rounded-lg text-xs font-mono w-full focus:outline-none focus:ring-2 ${val && !valid ? "border-red-300 focus:ring-red-200" : "border-gray-200 focus:ring-brand-200"}`} />
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {isSaved && <Check className="w-4 h-4 text-emerald-500 inline" />}
+                        </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
-          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
+        <div className="flex items-center justify-between gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+          <span className="text-xs text-gray-400">{pending.length} pending · {saved.size} replaced</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Close</button>
+            <button onClick={saveAll} disabled={readyCount === 0}
+              className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">
+              Save {readyCount > 0 ? readyCount : ""}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Batch Photo Upload (0522 spec: filename = SSO; auto-match) ───────────────
-function BatchPhotoUploadModal({ onClose }: { onClose: () => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  type PhotoPick = { name: string; ssoId: string; matched: Actor | null };
-  const [picks, setPicks] = useState<PhotoPick[]>([]);
+// ── Terminate Performers Dialog (per 0527 spec) ─────────────────────────────
+// Paste one or many SSOs → load a confirmation list (SSO / name / home show /
+// home role) → confirm flips each matched performer to Terminated.
+function TerminationDialog({ onClose }: { onClose: () => void }) {
+  const { setStatusFor, statusOf } = useActorStatus();
+  const [raw, setRaw] = useState("");
+  const [loaded, setLoaded] = useState<{ matched: Actor[]; unmatched: string[] } | null>(null);
 
-  function ssoFromFilename(name: string): string {
-    const base = name.replace(/\.[^.]+$/, "");
-    const m = base.match(/^(\d{8})/) ?? base.match(/(\d{8})/);
-    return m ? m[1] : "";
-  }
-
-  function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files) return;
-    const next: PhotoPick[] = Array.from(files).map((f) => {
-      const sso = ssoFromFilename(f.name);
-      const match = sso ? PERFORMERS.find((p) => p.ssoId === sso) ?? null : null;
-      return { name: f.name, ssoId: sso, matched: match };
+  function loadList() {
+    const tokens = [...new Set(raw.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean))];
+    const matched: Actor[] = [];
+    const unmatched: string[] = [];
+    tokens.forEach((sso) => {
+      const a = ALL_ACTORS_BY_SSO.find((x) => x.ssoId === sso);
+      if (a) matched.push(a); else unmatched.push(sso);
     });
-    setPicks((p) => [...p, ...next]);
-    e.target.value = "";
+    setLoaded({ matched, unmatched });
   }
 
-  const matched = picks.filter((p) => p.matched).length;
-  const unmatched = picks.length - matched;
+  function confirmTerminate() {
+    if (!loaded || loaded.matched.length === 0) return;
+    setStatusFor(loaded.matched.map((a) => a.id), "Terminated");
+    onClose();
+  }
+
+  const toTerminate = loaded?.matched.filter((a) => statusOf(a) !== "Terminated") ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Batch Photo Upload</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Photos are matched to performers by SSO in the filename (e.g. <span className="font-mono">20017233.jpg</span>).</p>
+            <h2 className="font-semibold text-gray-900">Terminate Performers</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Paste one or more SSOs (separated by space, comma, or new line).</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-3 overflow-y-auto">
-          <input ref={fileRef} type="file" multiple accept="image/*" className="hidden" onChange={handlePick} />
-          <div onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
-            <Upload className="w-6 h-6" />
-            <span className="text-sm font-medium">{picks.length === 0 ? "Click to select photo files" : "Add more photos"}</span>
-          </div>
-          {picks.length > 0 && (
-            <>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full">Matched {matched}</span>
-                {unmatched > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-full">No match {unmatched}</span>}
-              </div>
-              <div className="overflow-auto rounded-xl border border-gray-100 max-h-72">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50 text-[10px] uppercase text-gray-400">
-                    <tr>
-                      <th className="text-left px-3 py-2">File</th>
-                      <th className="text-left px-3 py-2">SSO</th>
-                      <th className="text-left px-3 py-2">Matched performer</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {picks.map((p, i) => (
-                      <tr key={i} className={p.matched ? "" : "bg-red-50 text-red-700"}>
-                        <td className="px-3 py-2 truncate max-w-[180px]" title={p.name}>{p.name}</td>
-                        <td className="px-3 py-2 font-mono text-gray-500">{p.ssoId || "—"}</td>
-                        <td className="px-3 py-2 text-gray-700">{p.matched ? p.matched.name : "No performer with this SSO"}</td>
+
+        {!loaded ? (
+          <>
+            <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">
+              <textarea value={raw} onChange={(e) => setRaw(e.target.value)} rows={6}
+                placeholder={"20017233\n20018021\n20019044"}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-200" />
+            </div>
+            <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+              <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+              <button onClick={loadList} disabled={!raw.trim()}
+                className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Load List</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-3 overflow-y-auto">
+              {loaded.matched.length === 0 ? (
+                <p className="text-sm text-gray-300 py-6 text-center">No performers matched the SSOs you entered.</p>
+              ) : (
+                <div className="overflow-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2">SSO</th>
+                        <th className="text-left px-3 py-2">Name</th>
+                        <th className="text-left px-3 py-2">Home Show</th>
+                        <th className="text-left px-3 py-2">Home Role</th>
+                        <th className="text-left px-3 py-2">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
-        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
-          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} disabled={matched === 0}
-            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Upload {matched > 0 ? `${matched} photo${matched === 1 ? "" : "s"}` : ""}
-          </button>
-        </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {loaded.matched.map((a) => (
+                        <tr key={a.id}>
+                          <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{a.ssoId}</td>
+                          <td className="px-3 py-2 text-gray-800 whitespace-nowrap">{a.name}</td>
+                          <td className="px-3 py-2 text-gray-600">{a.homeShow ?? "—"}</td>
+                          <td className="px-3 py-2 text-gray-600">{a.homeRole ?? "—"}</td>
+                          <td className="px-3 py-2"><StatusBadge status={statusOf(a)} size="xs" /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {loaded.unmatched.length > 0 && (
+                <p className="text-xs text-red-500">
+                  {loaded.unmatched.length} SSO{loaded.unmatched.length === 1 ? "" : "s"} not found: <span className="font-mono">{loaded.unmatched.join(", ")}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex justify-between gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+              <button onClick={() => setLoaded(null)} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Back</button>
+              <button onClick={confirmTerminate} disabled={toTerminate.length === 0}
+                className="px-5 py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 disabled:opacity-40 transition-colors">
+                Terminate {toTerminate.length > 0 ? toTerminate.length : ""}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -2313,7 +2227,7 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
   // Pool: unassigned performers + those whose home show ≠ this show. Inactive
   // performers are filtered out since they shouldn't be re-cast.
   const pool = useMemo(() => {
-    const list = PERFORMERS.filter((p) => (p.status ?? "Active") === "Active");
+    const list = PERFORMERS.filter((p) => (p.status ?? "Employed") === "Employed");
     if (!query) return list.slice(0, 60);
     const lq = query.toLowerCase();
     return list.filter((p) => p.name.toLowerCase().includes(lq) || p.ssoId.includes(query)).slice(0, 60);
@@ -2405,143 +2319,21 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
   );
 }
 
-// ── Batch Assign Role Dialog ───────────────────────────────────────────────
-
-interface AssignTarget {
-  ids: number[];
-  defaultShow?: string;
-  defaultRole?: string;
-  defaultRoleType?: "home" | "swing";
-}
-
-function BatchAssignDialog({ target, onClose, onSubmit }: {
-  target: AssignTarget; onClose: () => void; onSubmit: (params: {
-    ids: number[]; assignToType: "regular" | "special"; show: string; role: string; castType: "home" | "swing";
-  }) => void;
-}) {
-  const [assignToType, setAssignToType] = useState<"regular" | "special">("regular");
-  const [show, setShow] = useState(target.defaultShow ?? "");
-  const [role, setRole] = useState(target.defaultRole ?? "");
-  const [castType, setCastType] = useState<"home" | "swing">(target.defaultRoleType ?? "home");
-
-  const rolesForShow = ALL_SHOWS.find((s) => s.name === show)?.roles ?? [];
-  const canSave = (assignToType === "special") || (!!show && !!role);
-
-  const body = (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
-        <div className="flex items-center gap-5">
-          {([
-            ["regular", "Regular Show"],
-            ["special", "Special Event"],
-          ] as const).map(([val, lbl]) => (
-            <label key={val} className="flex items-center gap-2 cursor-pointer">
-              <input type="radio" checked={assignToType === val} onChange={() => setAssignToType(val)} className="accent-brand-500" />
-              <span className="text-sm text-gray-700">{lbl}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {assignToType === "regular" && (
-        <>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
-            <select value={show} onChange={(e) => { setShow(e.target.value); setRole(""); }}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700">
-              <option value="">Please Choose</option>
-              {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)} disabled={!show}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 disabled:opacity-50">
-              <option value="">Please Choose</option>
-              {rolesForShow.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-            </select>
-          </div>
-        </>
-      )}
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Cast Type</label>
-        <div className="flex gap-2">
-          {([
-            ["home", "Home Cast"], ["swing", "Swing Cast"],
-          ] as const).map(([val, lbl]) => (
-            <button key={val} onClick={() => setCastType(val)}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${castType === val ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  const title = `Batch Assign for ${target.ids.length} Performer${target.ids.length === 1 ? "" : "s"}`;
-
-  return (
-    <>
-      {/* Desktop centered modal */}
-      <div className="hidden md:flex fixed inset-0 z-50 items-center justify-center bg-black/40 p-4" onClick={onClose}>
-        <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900 text-sm sm:text-base">{title}</h2>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
-          </div>
-          <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">{body}</div>
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50 sm:border-t-0">
-            <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-            <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
-              className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Save</button>
-          </div>
-        </div>
-      </div>
-      {/* Mobile bottom sheet */}
-      <div className="md:hidden">
-        <BottomSheet open onClose={onClose} title={title}
-          footer={
-            <div className="flex gap-2">
-              <button onClick={onClose}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
-              <button onClick={() => onSubmit({ ids: target.ids, assignToType, show, role, castType })} disabled={!canSave}
-                className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">Save</button>
-            </div>
-          }
-        >
-          {body}
-        </BottomSheet>
-      </div>
-    </>
-  );
-}
-
 // ── Performer Card ─────────────────────────────────────────────────────────
 
-function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkStatus }: {
-  actor: Actor; index: number; type: "home" | "swing";
-  selected?: boolean; onSelect?: () => void; onOpen: (id: number) => void;
-  onMarkStatus?: (id: number, anchor: { top: number; left: number }) => void;
+function PerformerCard({ actor, index, type, onOpen }: {
+  actor: Actor; index: number; type: "home" | "swing"; onOpen: (id: number) => void;
 }) {
   const { statusOf } = useActorStatus();
   const status = statusOf(actor);
   return (
     <>
-      <div className={`group relative bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 ${selected ? "border-brand-400 ring-2 ring-brand-200" : "border-gray-100"}`}>
+      <div className="group relative bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
         <div className="absolute top-2 left-2 z-10">
           <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-brand-500 text-white" : "bg-amber-400 text-amber-900"}`}>
             {type === "home" ? `H${index + 1}` : `S${index + 1}`}
           </span>
         </div>
-        {onSelect && (
-          <button onClick={(e) => { e.stopPropagation(); onSelect(); }}
-            className={`absolute top-2 right-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selected ? "bg-brand-500 border-brand-500 text-white" : "border-white/70 bg-black/20 text-transparent group-hover:border-white"}`}>
-            {selected && <Check className="w-3 h-3" />}
-          </button>
-        )}
         <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => onOpen(actor.id)}>
           <img src={actor.photoUrl} alt={actor.name} className="absolute inset-0 w-full h-full object-cover object-top" loading="lazy" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -2549,18 +2341,9 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkS
               <Eye className="w-3.5 h-3.5 text-gray-700" />
             </div>
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-              onMarkStatus?.(actor.id, { top: r.bottom + 6, left: Math.max(8, r.left - 100) });
-            }}
-            aria-label="Change status"
-            className="absolute bottom-1.5 left-1.5 z-10"
-          >
+          <span className="absolute bottom-1.5 left-1.5 z-10">
             <StatusBadge status={status} />
-          </button>
+          </span>
         </div>
         <div className="px-2 py-2">
           <p className="text-xs font-bold text-gray-900 leading-snug truncate">{actor.name}</p>
@@ -2591,9 +2374,8 @@ function PerformerCard({ actor, index, type, selected, onSelect, onOpen, onMarkS
 
 // ── Data Ops Menu ─────────────────────────────────────────────────────────
 
-function ImportMenu({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onUpdateBasicInfo, onBatchPhotos }: {
-  onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
-  onImportSwing: () => void; onUpdateBasicInfo: () => void; onBatchPhotos: () => void;
+function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso }: {
+  onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -2610,26 +2392,14 @@ function ImportMenu({ onImportPerformers, onImportEvents, onImportSkills, onImpo
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
               <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
             </button>
-            <button onClick={() => { setOpen(false); onUpdateBasicInfo(); }}
+            <button onClick={() => { setOpen(false); onUpdateBasic(); }}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
               <Upload className="w-3.5 h-3.5 text-gray-400" />Update Basic Info
             </button>
-            <button onClick={() => { setOpen(false); onImportEvents(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
-            </button>
-            <button onClick={() => { setOpen(false); onImportSkills(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
-            </button>
-            <button onClick={() => { setOpen(false); onImportSwing(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
-            </button>
             <div className="my-1 border-t border-gray-100" />
-            <button onClick={() => { setOpen(false); onBatchPhotos(); }}
+            <button onClick={() => { setOpen(false); onReplaceSso(); }}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
+              <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
             </button>
           </div>
         </>
@@ -2640,57 +2410,27 @@ function ImportMenu({ onImportPerformers, onImportEvents, onImportSkills, onImpo
 
 // ── Card View ──────────────────────────────────────────────────────────────
 
-function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onAssignPerformers, showUnassigned, onOpenActor,
-  onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onReplaceSso, onUpdateBasicInfo, onBatchPhotos,
+function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPerformers, onTerminate, showUnassigned, onOpenActor,
+  onImportPerformers, onUpdateBasic, onReplaceSso,
 }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
-  onCast: (ids: number[]) => void;
   onAssignPerformers: () => void;
+  onTerminate: () => void;
   showUnassigned: boolean;
   onOpenActor: (id: number) => void;
-  onImportPerformers: () => void; onImportEvents: () => void; onImportSkills: () => void;
-  onImportSwing: () => void; onReplaceSso: () => void; onUpdateBasicInfo: () => void; onBatchPhotos: () => void;
+  onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFilter, setShowFilter] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const { statusOf, setStatusFor } = useActorStatus();
+  const { statusOf } = useActorStatus();
   const activeFilterCount = countActiveFilters(filters);
-  const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
-  const [offboardIds, setOffboardIds] = useState<number[] | null>(null);
 
   function updateFilters(next: Filters) {
     setFilters(next);
     setPage(1);
-  }
-
-  function toggleSelect(id: number) {
-    setSelectedIds((p) => {
-      const n = new Set(p);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      return n;
-    });
-  }
-
-  function openCardStatusMenu(id: number, anchor: { top: number; left: number }) {
-    setMarkMenu({ ids: [id], anchor, single: true });
-  }
-  function openBatchStatusMenu(anchor?: { top: number; left: number }) {
-    if (selectedIds.size === 0) return;
-    setMarkMenu({ ids: Array.from(selectedIds), anchor });
-  }
-  function applyStatusPick(s: ActorStatus) {
-    if (!markMenu) return;
-    if (s === "Inactive") {
-      // 0522 spec: offboarding requires a reason before flipping to Inactive.
-      setOffboardIds(markMenu.ids);
-      return;
-    }
-    setStatusFor(markMenu.ids, s);
-    if (!markMenu.single) setSelectedIds(new Set());
   }
 
   if (showUnassigned) {
@@ -2713,11 +2453,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              <button onClick={onReplaceSso}
-                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              <button onClick={onTerminate}
+                className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
+                <UserX className="w-4 h-4" />离职
               </button>
-              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
             </div>
           </div>
           {showFilter && (
@@ -2741,32 +2481,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
               <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
             </BottomSheet>
           </div>
-          {selectedIds.size > 0 && (
-            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
-              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-              <div className="flex items-center gap-2">
-                <button onClick={(e) => {
-                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
-                }}
-                  className="px-3.5 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors">
-                  Mark Status
-                </button>
-                <button onClick={() => { onCast(Array.from(selectedIds)); }}
-                  className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
-                  Assign Role
-                </button>
-              </div>
-            </div>
-          )}
           {unassigned.length === 0 ? (
             <p className="text-sm text-gray-300 py-8 text-center">{unassignedAll.length === 0 ? "All performers are assigned" : "No performers match the filters"}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((a, i) => (
-                <PerformerCard key={a.id} actor={a} index={i} type="home"
-                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor}
-                  onMarkStatus={openCardStatusMenu} />
+                <PerformerCard key={a.id} actor={a} index={i} type="home" onOpen={onOpenActor} />
               ))}
             </div>
           )}
@@ -2774,22 +2494,6 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
         {totalPages > 1 && (
           <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
             totalItems={unassigned.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
-        )}
-        {markMenu && (() => {
-          const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
-          return <MarkStatusMenu anchor={markMenu.anchor}
-            current={cur}
-            count={markMenu.single ? undefined : markMenu.ids.length}
-            onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
-        })()}
-        {offboardIds && (
-          <OffboardingDialog count={offboardIds.length}
-            onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
-            onConfirm={() => {
-              setStatusFor(offboardIds, "Inactive");
-              if (!markMenu?.single) setSelectedIds(new Set());
-              setMarkMenu(null);
-            }} />
         )}
       </div>
     );
@@ -2814,11 +2518,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 <Filter className="w-4 h-4" />Filter
                 {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
               </button>
-              <button onClick={onReplaceSso}
-                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              <button onClick={onTerminate}
+                className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
+                <UserX className="w-4 h-4" />离职
               </button>
-              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
             </div>
           </div>
           {showFilter && (
@@ -2842,32 +2546,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
               <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
             </BottomSheet>
           </div>
-          {selectedIds.size > 0 && (
-            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
-              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-              <div className="flex items-center gap-2">
-                <button onClick={(e) => {
-                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
-                }}
-                  className="px-3.5 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors">
-                  Mark Status
-                </button>
-                <button onClick={() => { onCast(Array.from(selectedIds)); }}
-                  className="px-3.5 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
-                  Assign Role
-                </button>
-              </div>
-            </div>
-          )}
           {allFiltered.length === 0 ? (
             <p className="text-sm text-gray-300 py-8 text-center">No performers match the filters</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {allPageItems.map((a, i) => (
-                <PerformerCard key={a.id} actor={a} index={(allSafeP - 1) * pageSize + i} type="home"
-                  selected={selectedIds.has(a.id)} onSelect={() => toggleSelect(a.id)} onOpen={onOpenActor}
-                  onMarkStatus={openCardStatusMenu} />
+                <PerformerCard key={a.id} actor={a} index={(allSafeP - 1) * pageSize + i} type="home" onOpen={onOpenActor} />
               ))}
             </div>
           )}
@@ -2875,22 +2559,6 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
         {allTotalPages > 1 && (
           <Paginator page={allSafeP} totalPages={allTotalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
             totalItems={allFiltered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
-        )}
-        {markMenu && (() => {
-          const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
-          return <MarkStatusMenu anchor={markMenu.anchor}
-            current={cur}
-            count={markMenu.single ? undefined : markMenu.ids.length}
-            onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
-        })()}
-        {offboardIds && (
-          <OffboardingDialog count={offboardIds.length}
-            onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
-            onConfirm={() => {
-              setStatusFor(offboardIds, "Inactive");
-              if (!markMenu?.single) setSelectedIds(new Set());
-              setMarkMenu(null);
-            }} />
         )}
       </div>
     );
@@ -2930,11 +2598,11 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm">
                 <Users className="w-4 h-4" />Assign Performers
               </button>
-              <button onClick={onReplaceSso}
-                className="hidden md:flex items-center gap-1.5 h-9 px-3.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-                <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
+              <button onClick={onTerminate}
+                className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
+                <UserX className="w-4 h-4" />离职
               </button>
-              <ImportMenu onImportPerformers={onImportPerformers} onImportEvents={onImportEvents} onImportSkills={onImportSkills} onImportSwing={onImportSwing} onUpdateBasicInfo={onUpdateBasicInfo} onBatchPhotos={onBatchPhotos} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
             </div>
           </div>
 
@@ -2962,28 +2630,12 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
             </BottomSheet>
           </div>
 
-          {selectedIds.size > 0 && (
-            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-brand-50 border border-brand-100 rounded-lg">
-              <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-              <div className="flex items-center gap-3">
-                <button onClick={(e) => {
-                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                  openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
-                }}
-                  className="px-3 py-1 bg-white border border-gray-200 text-gray-700 rounded-md text-xs font-medium hover:bg-gray-50 transition-colors">
-                  Mark Status
-                </button>
-                <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
-              </div>
-            </div>
-          )}
-
           {/* Home / Swing tabs */}
           <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-5">
             {(["home", "swing"] as const).map((t) => {
               const count = t === "home" ? selectedRole.homeActors.length : selectedRole.swingActors.length;
               return (
-                <button key={t} onClick={() => { setCastTab(t); setPage(1); setSelectedIds(new Set()); }}
+                <button key={t} onClick={() => { setCastTab(t); setPage(1); }}
                   className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${castTab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                   {t === "home" ? "Home Cast" : "Swing Cast"}
                   <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${castTab === t ? (t === "home" ? "bg-brand-100 text-brand-600" : "bg-amber-100 text-amber-700") : "bg-gray-200 text-gray-500"}`}>
@@ -3000,10 +2652,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((item) =>
                 <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
-                  selected={selectedIds.has(item.actor.id)}
-                  onSelect={() => toggleSelect(item.actor.id)}
-                  onOpen={onOpenActor}
-                  onMarkStatus={openCardStatusMenu} />
+                  onOpen={onOpenActor} />
               )}
             </div>
           )}
@@ -3012,380 +2661,6 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onCast, onA
       {totalPages > 1 && (
         <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[12, 24, 48]}
           totalItems={totalItems} onPageChange={setPage} onPageSizeChange={setPageSize} />
-      )}
-      {markMenu && (() => {
-        const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
-        return <MarkStatusMenu anchor={markMenu.anchor}
-          current={cur}
-          count={markMenu.single ? undefined : markMenu.ids.length}
-          onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
-      })()}
-      {offboardIds && (
-        <OffboardingDialog count={offboardIds.length}
-          onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
-          onConfirm={() => {
-            setStatusFor(offboardIds, "Inactive");
-            if (!markMenu?.single) setSelectedIds(new Set());
-            setMarkMenu(null);
-          }} />
-      )}
-    </div>
-  );
-}
-
-// ── Roster View (List) ─────────────────────────────────────────────────────
-
-type SortKey = "height" | "weight" | null;
-type SortDir = "asc" | "desc";
-
-function SortBtn({ col, sortKey, sortDir, onSort }: { col: SortKey; sortKey: SortKey; sortDir: SortDir; onSort: (k: SortKey) => void }) {
-  const active = col === sortKey;
-  return (
-    <button onClick={() => onSort(col)} className="ml-1 inline-flex text-gray-300 hover:text-gray-600 transition-colors">
-      {active ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-brand-500" /> : <ArrowDown className="w-3 h-3 text-brand-500" />) : <ArrowUpDown className="w-3 h-3" />}
-    </button>
-  );
-}
-
-function RosterView({ onImportPerformers, onImportEvents, onImportSkills, onImportSwing, onBindSso, onUpdateBasicInfo, onBatchPhotos, selectedShow, selectedRole, showUnassigned, onOpenActor }: {
-  onImportPerformers: () => void;
-  onImportEvents: () => void;
-  onImportSkills: () => void;
-  onImportSwing: () => void;
-  onBindSso: () => void;
-  onUpdateBasicInfo: () => void;
-  onBatchPhotos: () => void;
-  selectedShow: Show | null; selectedRole: Role | null; showUnassigned: boolean;
-  onOpenActor: (id: number) => void;
-}) {
-  const [sortKey, setSortKey] = useState<SortKey>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [showFilter, setShowFilter] = useState(false);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const { statusOf, setStatusFor } = useActorStatus();
-  const [markMenu, setMarkMenu] = useState<{ ids: number[]; anchor?: { top: number; left: number }; single?: boolean } | null>(null);
-  const [offboardIds, setOffboardIds] = useState<number[] | null>(null);
-
-  const activeFilterCount = countActiveFilters(filters);
-  const [actionMenuOpen, setActionMenuOpen] = useState(false);
-  const offboardAvailable = selectedIds.size > 0;
-
-  function openRowStatusMenu(id: number, anchor: { top: number; left: number }) {
-    setMarkMenu({ ids: [id], anchor, single: true });
-  }
-  function openBatchStatusMenu(anchor?: { top: number; left: number }) {
-    if (selectedIds.size === 0) return;
-    setMarkMenu({ ids: Array.from(selectedIds), anchor });
-  }
-  function applyStatusPick(s: ActorStatus) {
-    if (!markMenu) return;
-    if (s === "Inactive") {
-      setOffboardIds(markMenu.ids);
-      return;
-    }
-    setStatusFor(markMenu.ids, s);
-    if (!markMenu.single) setSelectedIds(new Set());
-  }
-
-  function handleSort(k: SortKey) {
-    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(k); setSortDir("asc"); }
-  }
-
-  function updateFilters(next: Filters) {
-    setFilters(next);
-    setPage(1);
-  }
-
-  // Roster pool follows the left-nav selection:
-  // - Unassigned tab → performers with no home show
-  // - A specific role selected → that role's home + swing actors (enriched so the
-  //   detail drawer renders the full picture)
-  // - Nothing selected → empty (don't load any actors until the user picks a role)
-  const rosterPool = useMemo<Actor[]>(() => {
-    if (showUnassigned) return PERFORMERS.filter((p) => !p.homeShow);
-    if (selectedShow && selectedRole) {
-      return [
-        ...selectedRole.homeActors.map((a) => enrichActor(a, selectedShow.name, selectedRole.name)),
-        ...selectedRole.swingActors.map((a) => enrichActor(a, selectedShow.name, selectedRole.name)),
-      ];
-    }
-    return [];
-  }, [showUnassigned, selectedShow, selectedRole]);
-
-  const filtered = useMemo(() => rosterPool.filter((p) => actorMatchesFilters(p, filters, statusOf)), [rosterPool, filters, statusOf]);
-
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered;
-    return [...filtered].sort((a, b) => {
-      const av = a[sortKey] ?? 0;
-      const bv = b[sortKey] ?? 0;
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [filtered, sortKey, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safeP = Math.min(page, totalPages);
-  const pageRows = sorted.slice((safeP - 1) * pageSize, safeP * pageSize);
-
-  const allSelected = pageRows.length > 0 && pageRows.every((p) => selectedIds.has(p.id));
-  function toggleAll() {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allSelected) pageRows.forEach((p) => next.delete(p.id));
-      else pageRows.forEach((p) => next.add(p.id));
-      return next;
-    });
-  }
-  function toggleOne(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Breadcrumb + action bar */}
-      <div className="bg-white border-b border-gray-100 px-4 sm:px-5 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="text-sm sm:text-base min-w-0">
-          {showUnassigned ? (
-            <span className="text-gray-900 font-semibold">Unassigned</span>
-          ) : (
-            <>
-              <span className="text-gray-500">Regular Show</span>
-              {selectedShow && (<><span className="text-gray-300 mx-2">/</span><span className="text-gray-500">{selectedShow.name}</span></>)}
-              {selectedRole && (<><span className="text-gray-300 mx-2">/</span><span className="text-gray-900 font-semibold">{selectedRole.name}</span></>)}
-            </>
-          )}
-        </div>
-        <button onClick={() => setShowFilter((p) => !p)}
-          className={`sm:ml-3 flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-medium border transition-colors ${showFilter ? "bg-brand-50 border-brand-300 text-brand-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-          <Filter className="w-4 h-4" />Filter
-          {activeFilterCount > 0 && <span className="text-[10px] bg-brand-500 text-white rounded-full px-1.5 py-0.5">{activeFilterCount}</span>}
-        </button>
-        <span className="text-xs text-gray-400">{sorted.length} performers</span>
-        {offboardAvailable && (
-          <>
-            <span className="text-xs text-brand-700 font-medium">已选择{selectedIds.size}项</span>
-            <button onClick={(e) => {
-              const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-              openBatchStatusMenu({ top: r.bottom + 6, left: Math.max(8, r.right - 176) });
-            }}
-              className="h-9 px-3 border border-gray-200 text-gray-700 bg-white rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-              Mark Status
-            </button>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
-          </>
-        )}
-        {/* Replace SSO + Import menu — PC only per 0525 spec. */}
-        <div className="ml-auto hidden md:flex items-center gap-2">
-          <button onClick={onBindSso}
-            className="h-9 flex items-center gap-1.5 px-3.5 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-            <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
-          </button>
-          <div className="relative">
-            <button onClick={() => setActionMenuOpen((p) => !p)}
-              className="h-9 flex items-center gap-1.5 px-4 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
-              <Upload className="w-3.5 h-3.5" />Import <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-            {actionMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setActionMenuOpen(false)} />
-                <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
-                  <button onClick={() => { setActionMenuOpen(false); onImportPerformers(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
-                  </button>
-                  <button onClick={() => { setActionMenuOpen(false); onUpdateBasicInfo(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Upload className="w-3.5 h-3.5 text-gray-400" />Update Basic Info
-                  </button>
-                  <button onClick={() => { setActionMenuOpen(false); onImportEvents(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Event Experience
-                  </button>
-                  <button onClick={() => { setActionMenuOpen(false); onImportSkills(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Skills
-                  </button>
-                  <button onClick={() => { setActionMenuOpen(false); onImportSwing(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Upload className="w-3.5 h-3.5 text-gray-400" />Import Swing Show &amp; Role
-                  </button>
-                  <div className="my-1 border-t border-gray-100" />
-                  <button onClick={() => { setActionMenuOpen(false); onBatchPhotos(); }}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                    <Camera className="w-3.5 h-3.5 text-gray-400" />Batch Photo Upload
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {showFilter && (
-        <div className="hidden md:block px-4 sm:px-5 pt-4 bg-gray-50">
-          <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
-        </div>
-      )}
-      <div className="md:hidden">
-        <BottomSheet open={showFilter} onClose={() => setShowFilter(false)} title="筛选"
-          footer={
-            <div className="flex gap-2">
-              <button onClick={() => updateFilters(EMPTY_FILTERS)}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center justify-center gap-1">
-                <RotateCcw className="w-3.5 h-3.5" />Reset
-              </button>
-              <button onClick={() => setShowFilter(false)}
-                className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium">Apply</button>
-            </div>
-          }
-        >
-          <FilterPanel filters={filters} onChange={updateFilters} onClose={() => setShowFilter(false)} />
-        </BottomSheet>
-      </div>
-
-      {/* Mobile card list (<md) */}
-      <div className="md:hidden flex-1 overflow-y-auto bg-gray-50 px-3 py-3 space-y-2">
-        {pageRows.length === 0 && (
-          <div className="text-center py-16 text-gray-300 text-sm">
-            {!showUnassigned && !selectedRole ? "Select a role to view performers" : "No performers found"}
-          </div>
-        )}
-        {pageRows.map((p) => (
-          <div key={p.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-start gap-3 active:bg-gray-50"
-            onClick={() => onOpenActor(p.id)}>
-            <input
-              type="checkbox"
-              checked={selectedIds.has(p.id)}
-              onChange={(e) => { e.stopPropagation(); toggleOne(p.id); }}
-              onClick={(e) => e.stopPropagation()}
-              className="mt-1 w-4 h-4 rounded border-gray-300 accent-brand-500 flex-shrink-0"
-            />
-            <img src={p.photoUrl} alt={p.name} className="w-12 h-12 rounded-full object-cover object-top ring-1 ring-gray-100 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 text-sm truncate">{p.name}</p>
-                  <p className="text-[11px] text-gray-400 font-mono truncate">{p.ssoId}</p>
-                </div>
-                <span className="text-[11px] text-gray-500 whitespace-nowrap">{p.flag} {p.nationality}</span>
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
-                <span>Height <span className="text-gray-700 font-medium">{p.height}</span></span>
-                <span>Weight <span className="text-gray-700 font-medium">{p.weight}</span></span>
-                <span className="truncate">
-                  {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-700 font-medium">{p.homeRole}</span></> : "—"}
-                </span>
-              </div>
-              <div className="mt-1.5">
-                <button onClick={(e) => { e.stopPropagation(); openRowStatusMenu(p.id, { top: 0, left: 0 }); }}
-                  className="inline-flex">
-                  <StatusBadge status={statusOf(p)} />
-                </button>
-              </div>
-            </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); onOpenActor(p.id); }}
-              className="flex-shrink-0 text-xs text-brand-500 hover:text-brand-700 font-medium px-2 py-1"
-            >
-              View
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* Desktop table (>=md) */}
-      <div className="hidden md:block flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-              <th className="w-12 px-4 py-3">
-                <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                  className="w-4 h-4 rounded border-gray-300 accent-brand-500" />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold">Name</th>
-              <th className="text-left px-4 py-3 font-semibold">SSO</th>
-              <th className="text-left px-4 py-3 font-semibold">Nationality</th>
-              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
-                Height <SortBtn col="height" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">
-                Weight <SortBtn col="weight" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold">Home Show &amp; Role</th>
-              <th className="text-left px-4 py-3 font-semibold">Status</th>
-              <th className="text-left px-4 py-3 font-semibold">Action</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-50">
-            {pageRows.length === 0 && (
-              <tr><td colSpan={9} className="text-center py-16 text-gray-300 text-sm">
-                {!showUnassigned && !selectedRole ? "Select a role to view performers" : "No performers found"}
-              </td></tr>
-            )}
-            {pageRows.map((p) => (
-              <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleOne(p.id)}
-                      className="w-4 h-4 rounded border-gray-300 accent-brand-500" />
-                  </div>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="flex items-center gap-2.5">
-                    <img src={p.photoUrl} alt={p.name} className="w-8 h-8 rounded-full object-cover object-top ring-1 ring-gray-100" />
-                    <span className="font-medium text-gray-900">{p.name}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.ssoId}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.flag} {p.nationality}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.height}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.weight}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                  {p.homeShow ? <>{p.homeShow} &amp; <span className="text-gray-800">{p.homeRole}</span></> : "—"}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={(e) => {
-                    const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                    openRowStatusMenu(p.id, { top: r.bottom + 6, left: Math.max(8, r.left) });
-                  }} className="inline-flex">
-                    <StatusBadge status={statusOf(p)} />
-                  </button>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <button onClick={() => onOpenActor(p.id)} className="text-xs text-brand-500 hover:text-brand-700 font-medium transition-colors">View</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Paginator page={safeP} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[10, 20, 50]}
-        totalItems={sorted.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
-      {markMenu && (() => {
-        const cur = markMenu.single ? (findActorById(markMenu.ids[0]) ? statusOf(findActorById(markMenu.ids[0])!) : undefined) : undefined;
-        return <MarkStatusMenu anchor={markMenu.anchor}
-          current={cur}
-          count={markMenu.single ? undefined : markMenu.ids.length}
-          onClose={() => setMarkMenu(null)} onPick={applyStatusPick} />;
-      })()}
-      {offboardIds && (
-        <OffboardingDialog count={offboardIds.length}
-          onClose={() => { setOffboardIds(null); setMarkMenu(null); }}
-          onConfirm={() => {
-            setStatusFor(offboardIds, "Inactive");
-            if (!markMenu?.single) setSelectedIds(new Set());
-            setMarkMenu(null);
-          }} />
       )}
     </div>
   );
@@ -3535,15 +2810,15 @@ export default function CastingBookPage() {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
-  const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [assignPerformersOpen, setAssignPerformersOpen] = useState(false);
-  // Excel imports + auxiliary ops (PC-only flows per 0522 spec)
-  const [importModal, setImportModal] = useState<null | "performers" | "events" | "skills" | "swing" | "sso" | "basicinfo" | "photos">(null);
+  const [terminateOpen, setTerminateOpen] = useState(false);
+  // Data Ops modals (PC-only): performer import, basic-info update, replace SSO.
+  const [importModal, setImportModal] = useState<null | "performers" | "updateBasic" | "sso">(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
 
   const statusOf = useCallback(
-    (a: Actor) => statusOverrides[a.id] ?? a.status ?? "Active",
+    (a: Actor) => statusOverrides[a.id] ?? a.status ?? "Employed",
     [statusOverrides],
   );
   const setStatusFor = useCallback((ids: number[], status: ActorStatus) => {
@@ -3671,22 +2946,13 @@ export default function CastingBookPage() {
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             <CardView selectedShow={selectedShow} selectedRole={selectedRole}
               castTab={castTab} setCastTab={setCastTab}
-              onCast={(ids) => setAssignTarget({
-                ids,
-                defaultShow: selectedShow?.name,
-                defaultRole: selectedRole?.name,
-                defaultRoleType: castTab,
-              })}
               onAssignPerformers={() => setAssignPerformersOpen(true)}
+              onTerminate={() => setTerminateOpen(true)}
               showUnassigned={showUnassigned}
               onOpenActor={openActor}
               onImportPerformers={() => setImportModal("performers")}
-              onImportEvents={() => setImportModal("events")}
-              onImportSkills={() => setImportModal("skills")}
-              onImportSwing={() => setImportModal("swing")}
+              onUpdateBasic={() => setImportModal("updateBasic")}
               onReplaceSso={() => setImportModal("sso")}
-              onUpdateBasicInfo={() => setImportModal("basicinfo")}
-              onBatchPhotos={() => setImportModal("photos")}
             />
         </div>
       </div>
@@ -3701,13 +2967,6 @@ export default function CastingBookPage() {
         />
       )}
 
-      {assignTarget && (
-        <BatchAssignDialog
-          target={assignTarget}
-          onClose={() => setAssignTarget(null)}
-          onSubmit={() => setAssignTarget(null)}
-        />
-      )}
       {assignPerformersOpen && selectedShow && selectedRole && (
         <AssignPerformersDialog
           show={selectedShow}
@@ -3717,13 +2976,10 @@ export default function CastingBookPage() {
           onSubmit={() => setAssignPerformersOpen(false)}
         />
       )}
+      {terminateOpen && <TerminationDialog onClose={() => setTerminateOpen(false)} />}
       {importModal === "performers" && <RosterImportModal onClose={() => setImportModal(null)} />}
-      {importModal === "basicinfo" && <BasicInfoImportModal onClose={() => setImportModal(null)} />}
-      {importModal === "events" && <EventImportModal onClose={() => setImportModal(null)} />}
-      {importModal === "skills" && <SkillImportModal onClose={() => setImportModal(null)} />}
-      {importModal === "swing" && <SwingImportModal onClose={() => setImportModal(null)} />}
+      {importModal === "updateBasic" && <UpdateBasicInfoModal onClose={() => setImportModal(null)} />}
       {importModal === "sso" && <SsoReplacementModal onClose={() => setImportModal(null)} />}
-      {importModal === "photos" && <BatchPhotoUploadModal onClose={() => setImportModal(null)} />}
     </div>
     </StatusCtx.Provider>
   );
