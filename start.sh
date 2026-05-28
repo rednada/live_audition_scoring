@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Live Audition Scoring — 生产模式启动脚本（macOS / Linux）
+#
+# 行为：
+#   1. 校验 Node.js 18+
+#   2. 仅安装生产依赖（首次会重建 better-sqlite3 等原生模块）
+#   3. 若包内不带 dev.db / 数据库为空，则 migrate + seed
+#   4. 用 next start 启动生产服务（不是 dev 热重载）
 set -e
 
 GREEN='\033[0;32m'
@@ -10,112 +17,136 @@ log()  { echo -e "${GREEN}[LAS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[LAS]${NC} $1"; }
 fail() { echo -e "${RED}[LAS] ERROR:${NC} $1"; exit 1; }
 
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
 echo ""
-echo "  Live Audition Scoring"
-echo "  ====================="
+echo "  Live Audition Scoring (Production)"
+echo "  =================================="
 echo ""
 
 # ---------- Node.js ----------
-if ! command -v node &>/dev/null; then
-  fail "Node.js 未安装。请访问 https://nodejs.org 安装 Node.js 18 或更高版本。"
-fi
-
+command -v node >/dev/null 2>&1 || fail "Node.js 未安装，请访问 https://nodejs.org 安装 18+ 版本。"
 NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  fail "Node.js 版本过低（当前 $(node -v)），需要 v18 或更高版本。"
-fi
+[ "$NODE_MAJOR" -ge 18 ] || fail "Node.js 版本过低（当前 $(node -v)），需要 v18+。"
 log "Node.js $(node -v) ✓"
 
-# ---------- npm ----------
-if ! command -v npm &>/dev/null; then
-  fail "npm 未找到，请重新安装 Node.js。"
-fi
+command -v npm >/dev/null 2>&1 || fail "未找到 npm。"
 log "npm $(npm -v) ✓"
 
-# ---------- 依赖安装 ----------
+# ---------- 加载 .env ----------
+if [ ! -f ".env" ]; then
+  log "生成默认 .env ..."
+  cat > .env <<'ENVEOF'
+DATABASE_URL="file:./dev.db"
+PORT=3000
+ENVEOF
+fi
+# PORT: env var takes precedence, then .env file, then default 3000
+if [ -z "$PORT" ]; then
+  PORT=$(grep -E "^PORT=" .env 2>/dev/null | tail -1 | sed -E 's/^PORT=//; s/"//g' || true)
+fi
+PORT=${PORT:-3000}
+
+# ---------- 生产依赖 ----------
+NEED_INSTALL=false
 if [ ! -d "node_modules" ]; then
-  log "首次运行，正在安装依赖（约需 1-2 分钟）..."
-  npm install --legacy-peer-deps
-else
-  # 检查 package.json 是否比 node_modules 新（依赖有更新）
-  if [ "package.json" -nt "node_modules/.package-lock.json" ] 2>/dev/null; then
-    warn "检测到依赖变更，正在更新..."
-    npm install --legacy-peer-deps
+  NEED_INSTALL=true
+elif [ "package.json" -nt "node_modules/.package-lock.json" ] 2>/dev/null; then
+  warn "检测到 package.json 变更，重新安装依赖..."
+  NEED_INSTALL=true
+fi
+
+if [ "$NEED_INSTALL" = "true" ]; then
+  log "安装生产依赖（首次约 1-2 分钟，会按本机平台重建原生模块）..."
+  if [ -f "package-lock.json" ]; then
+    npm ci --omit=dev --legacy-peer-deps 2>/dev/null || npm install --omit=dev --legacy-peer-deps
+  else
+    npm install --omit=dev --legacy-peer-deps
   fi
 fi
 log "依赖已就绪 ✓"
 
-# ---------- 环境变量 ----------
-if [ ! -f ".env" ]; then
-  log "生成 .env 文件..."
-  cat > .env <<'ENVEOF'
-DATABASE_URL="file:./dev.db"
-ENVEOF
-fi
+# ---------- Prisma Client（按本机平台生成） ----------
+log "生成 Prisma Client ..."
+npx prisma generate --schema=prisma/schema.prisma >/dev/null 2>&1 || true
 
-# ---------- 数据库迁移 ----------
-log "检查数据库..."
-if ! npx prisma migrate deploy --schema=prisma/schema.prisma 2>/dev/null; then
-  warn "migrate deploy 失败，尝试 migrate dev（开发模式）..."
-  npx prisma migrate dev --name init --schema=prisma/schema.prisma 2>/dev/null || true
-fi
-log "数据库结构已同步 ✓"
-
-# ---------- 生成 Prisma Client ----------
-npx prisma generate --schema=prisma/schema.prisma 2>/dev/null
-log "Prisma Client 已生成 ✓"
-
-# ---------- 数据库初始数据 ----------
+# ---------- 数据库 ----------
 DB_PATH="./dev.db"
-# 通过检查 Session 表是否有数据来判断是否需要 seed
+NEED_MIGRATE=false
 NEED_SEED=false
+
 if [ ! -f "$DB_PATH" ]; then
+  NEED_MIGRATE=true
   NEED_SEED=true
 else
+  # 库存在但若 Session 表为空也补 seed
   COUNT=$(node -e "
-    const {PrismaBetterSqlite3} = require('@prisma/adapter-better-sqlite3');
-    const {PrismaClient} = require('@prisma/client');
-    const adapter = new PrismaBetterSqlite3({url: 'file:./dev.db'});
-    const prisma = new PrismaClient({adapter});
-    prisma.session.count().then(n => { process.stdout.write(String(n)); prisma.\$disconnect(); });
-  " 2>/dev/null || echo "0")
-  if [ "$COUNT" = "0" ]; then
+    try {
+      const {PrismaBetterSqlite3} = require('@prisma/adapter-better-sqlite3');
+      const {PrismaClient} = require('@prisma/client');
+      const adapter = new PrismaBetterSqlite3({url: 'file:./dev.db'});
+      const prisma = new PrismaClient({adapter});
+      prisma.session.count().then(n => { process.stdout.write(String(n)); prisma.\$disconnect(); }).catch(()=>{ process.stdout.write('-1'); });
+    } catch(e) { process.stdout.write('-1'); }
+  " 2>/dev/null || echo "-1")
+  if [ "$COUNT" = "-1" ]; then
+    # 表不存在或客户端报错 → 跑 migrate
+    NEED_MIGRATE=true
+    NEED_SEED=true
+  elif [ "$COUNT" = "0" ]; then
     NEED_SEED=true
   fi
 fi
 
+if [ "$NEED_MIGRATE" = "true" ]; then
+  log "应用数据库迁移 ..."
+  npx prisma migrate deploy --schema=prisma/schema.prisma || warn "migrate deploy 失败，尝试 migrate dev"
+fi
+
 if [ "$NEED_SEED" = "true" ]; then
-  log "写入初始数据（场次、角色、二维码）..."
+  log "写入初始数据（场次/角色/二维码）..."
   npx tsx prisma/seed.ts
   log "初始数据已写入 ✓"
 else
-  log "数据库已有数据，跳过 seed ✓"
+  log "数据库已存在数据，跳过 seed ✓"
 fi
 
-# ---------- 上传目录 ----------
+# ---------- uploads ----------
 mkdir -p uploads
 log "uploads/ 目录已就绪 ✓"
 
 # ---------- 端口检测 ----------
-PORT=${PORT:-3000}
-if lsof -i ":$PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-  warn "端口 $PORT 已被占用，尝试 $((PORT+1))..."
-  PORT=$((PORT+1))
+if command -v lsof >/dev/null 2>&1; then
+  if lsof -i ":$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    warn "端口 $PORT 已被占用，尝试 $((PORT+1))..."
+    PORT=$((PORT+1))
+  fi
 fi
+
+# ---------- 本机 IP（用于局域网访问提示） ----------
+LAN_IP="localhost"
+if command -v ipconfig >/dev/null 2>&1; then
+  LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "")
+fi
+if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
+  LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+fi
+[ -z "$LAN_IP" ] && LAN_IP="<本机IP>"
 
 # ---------- 启动 ----------
 echo ""
-log "启动服务，访问地址："
+log "启动生产服务..."
 echo ""
 echo "    本机:    http://localhost:$PORT"
-echo "    局域网:  http://$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo '<本机IP>'):$PORT"
+echo "    局域网:  http://$LAN_IP:$PORT"
 echo ""
 echo "  角色入口："
-echo "    导演打分:    http://localhost:$PORT/director/login"
-echo "    甄选团队:    http://localhost:$PORT/casting/login"
-echo "    二维码管理:  http://localhost:$PORT/admin/qrcodes"
+echo "    导演登录:     http://localhost:$PORT/director/login"
+echo "    甄选团队:     http://localhost:$PORT/casting/login"
+echo "    Casting Book: http://localhost:$PORT/casting/book"
+echo "    二维码管理:   http://localhost:$PORT/admin/qrcodes"
 echo ""
 echo "  按 Ctrl+C 停止服务"
 echo ""
 
-npx next dev -p "$PORT"
+exec npx next start -p "$PORT"

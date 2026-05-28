@@ -49,3 +49,6 @@ dev.db-journal
 
 # claude local settings
 .claude/settings.local.json
+
+# packaging artifacts
+/live-audition-scoring-*.zip
