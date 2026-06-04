@@ -5,7 +5,7 @@ import { useState, useMemo, useRef, useCallback, createContext, useContext } fro
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown,
+  ArrowUp, ArrowDown, Trash2,
   RotateCcw, Eye, Users, UserX, Plus,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
   Filter, Check, Menu, ArrowLeft,
@@ -16,7 +16,7 @@ import useDocumentTitle from "@/lib/useDocumentTitle";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface MediaFile { type: "photo" | "video"; url: string; duration?: string; note?: string }
+interface MediaFile { type: "photo" | "video"; url: string; duration?: string; note?: string; photographer?: string; showRole?: string }
 interface SkillEntry { id: string; type: string; skill: string }
 interface ShowRoleRecord {
   id: string; show: string; role: string; roleType: "home" | "swing";
@@ -24,11 +24,11 @@ interface ShowRoleRecord {
 }
 interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
 
-type ActorStatus = "Employed" | "Terminated";
-const ACTOR_STATUSES: ActorStatus[] = ["Employed", "Terminated"];
+type ActorStatus = "Employed" | "Off Board";
+const ACTOR_STATUSES: ActorStatus[] = ["Employed", "Off Board"];
 const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; dot: string }> = {
-  "Employed":   { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
-  "Terminated": { bg: "bg-rose-50",    text: "text-rose-600",    dot: "bg-rose-400" },
+  "Employed":  { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  "Off Board": { bg: "bg-rose-50",    text: "text-rose-600",    dot: "bg-rose-400" },
 };
 
 // Status override state: actor objects come from module-level constants so
@@ -58,17 +58,21 @@ interface Actor {
   gender?: "men" | "women";
   height: number; weight: number; photoUrl: string;
   homeShow?: string; homeRole?: string;
+  performerCategory?: string;
+  voiceRange?: string;
   status?: ActorStatus;
-  // Some imported records carry a placeholder SSO (e.g. a phone number) that
-  // isn't an 8-digit "2…" id — these surface in the Replace SSO flow.
   pendingPhone?: string;
   skillEntries?: SkillEntry[];
   mediaFiles?: MediaFile[]; showRoleRecords?: ShowRoleRecord[]; eventRecords?: EventRecord[];
 }
 
-interface Role { id: string; name: string; headCount: number; homeActors: Actor[]; swingActors: Actor[] }
-interface Show { id: string; name: string; roles: Role[] }
-interface Land { id: string; label: string; shows: Show[] }
+interface Role { id: string; name: string; headCount: number; homeActors: Actor[]; swingActors: Actor[]; performerCategory: string }
+interface Show { id: string; name: string; roles: Role[]; performanceType: string }
+
+// ── New constants ──────────────────────────────────────────────────────────
+const VOICE_RANGE_OPTIONS = ["Soprano", "Mezzo-Soprano", "Alto", "Tenor", "Baritone", "Bass", "Coloratura Soprano", "Countertenor"];
+const PERFORMER_CATEGORIES = ["Voice Actor", "Stunt Performer", "Singer", "Dancer", "Character Performer"];
+const PERFORMANCE_TYPES = ["Stage Musical", "Parade", "Character Meet & Greet"];
 
 // ── Skillset Categories ────────────────────────────────────────────────────
 
@@ -94,37 +98,37 @@ const SKILL_TAG_COLORS: Record<string, string> = {
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
 
-const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "men" | "women" }[] = [
-  { name: "Arthur William Bennett", nationality: "UK", flag: "🇬🇧", gender: "men" },
-  { name: "Oliver James Carter", nationality: "UK", flag: "🇬🇧", gender: "men" },
-  { name: "Alvin Yang Chao 杨超", nationality: "China", flag: "🇨🇳", gender: "men" },
-  { name: "Lily Grace Wilson", nationality: "USA", flag: "🇺🇸", gender: "women" },
-  { name: "Chloe Rose Taylor", nationality: "UK", flag: "🇬🇧", gender: "women" },
-  { name: "Emma Sophie Davis", nationality: "Australia", flag: "🇦🇺", gender: "women" },
-  { name: "Liam Noah Johnson", nationality: "Canada", flag: "🇨🇦", gender: "men" },
-  { name: "Sofia Mia Martinez", nationality: "USA", flag: "🇺🇸", gender: "women" },
-  { name: "Ethan Mason Brown", nationality: "UK", flag: "🇬🇧", gender: "men" },
-  { name: "Chen Wei 陈威", nationality: "China", flag: "🇨🇳", gender: "men" },
-  { name: "Yuki Tanaka 田中雪", nationality: "Japan", flag: "🇯🇵", gender: "women" },
-  { name: "Min Ji Park 朴敏智", nationality: "Korea", flag: "🇰🇷", gender: "women" },
-  { name: "Lucas Gabriel Silva", nationality: "Brazil", flag: "🇧🇷", gender: "men" },
-  { name: "Isabella Rossi", nationality: "Italy", flag: "🇮🇹", gender: "women" },
-  { name: "Zoe Hannah White", nationality: "Australia", flag: "🇦🇺", gender: "women" },
-  { name: "Wang Fang 王芳", nationality: "China", flag: "🇨🇳", gender: "women" },
-  { name: "James Patrick Lee", nationality: "USA", flag: "🇺🇸", gender: "men" },
-  { name: "Sarah Elizabeth Moore", nationality: "UK", flag: "🇬🇧", gender: "women" },
-  { name: "Ryan Michael Scott", nationality: "Canada", flag: "🇨🇦", gender: "men" },
-  { name: "Mei Lin Zhang 张美琳", nationality: "China", flag: "🇨🇳", gender: "women" },
-  { name: "Thomas Edward Clark", nationality: "UK", flag: "🇬🇧", gender: "men" },
-  { name: "Jessica Anne Harris", nationality: "USA", flag: "🇺🇸", gender: "women" },
-  { name: "Marco Antonio López", nationality: "Spain", flag: "🇪🇸", gender: "men" },
-  { name: "Hana Sato 佐藤花", nationality: "Japan", flag: "🇯🇵", gender: "women" },
-  { name: "Kevin Andrew Young", nationality: "Canada", flag: "🇨🇦", gender: "men" },
-  { name: "Anna Marie König", nationality: "Germany", flag: "🇩🇪", gender: "women" },
-  { name: "Liu Yang 刘阳", nationality: "China", flag: "🇨🇳", gender: "men" },
-  { name: "Charlotte Emily Green", nationality: "UK", flag: "🇬🇧", gender: "women" },
-  { name: "Priya Sharma", nationality: "India", flag: "🇮🇳", gender: "women" },
-  { name: "Diego Alejandro Ruiz", nationality: "Mexico", flag: "🇲🇽", gender: "men" },
+const ACTOR_POOL: { name: string; nationality: string; flag: string; gender: "men" | "women"; performerCategory: string }[] = [
+  { name: "Arthur William Bennett", nationality: "UK", flag: "🇬🇧", gender: "men", performerCategory: "Singer" },
+  { name: "Oliver James Carter", nationality: "UK", flag: "🇬🇧", gender: "men", performerCategory: "Dancer" },
+  { name: "Alvin Yang Chao 杨超", nationality: "China", flag: "🇨🇳", gender: "men", performerCategory: "Stunt Performer" },
+  { name: "Lily Grace Wilson", nationality: "USA", flag: "🇺🇸", gender: "women", performerCategory: "Singer" },
+  { name: "Chloe Rose Taylor", nationality: "UK", flag: "🇬🇧", gender: "women", performerCategory: "Dancer" },
+  { name: "Emma Sophie Davis", nationality: "Australia", flag: "🇦🇺", gender: "women", performerCategory: "Character Performer" },
+  { name: "Liam Noah Johnson", nationality: "Canada", flag: "🇨🇦", gender: "men", performerCategory: "Voice Actor" },
+  { name: "Sofia Mia Martinez", nationality: "USA", flag: "🇺🇸", gender: "women", performerCategory: "Singer" },
+  { name: "Ethan Mason Brown", nationality: "UK", flag: "🇬🇧", gender: "men", performerCategory: "Dancer" },
+  { name: "Chen Wei 陈威", nationality: "China", flag: "🇨🇳", gender: "men", performerCategory: "Stunt Performer" },
+  { name: "Yuki Tanaka 田中雪", nationality: "Japan", flag: "🇯🇵", gender: "women", performerCategory: "Character Performer" },
+  { name: "Min Ji Park 朴敏智", nationality: "Korea", flag: "🇰🇷", gender: "women", performerCategory: "Singer" },
+  { name: "Lucas Gabriel Silva", nationality: "Brazil", flag: "🇧🇷", gender: "men", performerCategory: "Stunt Performer" },
+  { name: "Isabella Rossi", nationality: "Italy", flag: "🇮🇹", gender: "women", performerCategory: "Singer" },
+  { name: "Zoe Hannah White", nationality: "Australia", flag: "🇦🇺", gender: "women", performerCategory: "Dancer" },
+  { name: "Wang Fang 王芳", nationality: "China", flag: "🇨🇳", gender: "women", performerCategory: "Dancer" },
+  { name: "James Patrick Lee", nationality: "USA", flag: "🇺🇸", gender: "men", performerCategory: "Voice Actor" },
+  { name: "Sarah Elizabeth Moore", nationality: "UK", flag: "🇬🇧", gender: "women", performerCategory: "Singer" },
+  { name: "Ryan Michael Scott", nationality: "Canada", flag: "🇨🇦", gender: "men", performerCategory: "Character Performer" },
+  { name: "Mei Lin Zhang 张美琳", nationality: "China", flag: "🇨🇳", gender: "women", performerCategory: "Singer" },
+  { name: "Thomas Edward Clark", nationality: "UK", flag: "🇬🇧", gender: "men", performerCategory: "Dancer" },
+  { name: "Jessica Anne Harris", nationality: "USA", flag: "🇺🇸", gender: "women", performerCategory: "Character Performer" },
+  { name: "Marco Antonio López", nationality: "Spain", flag: "🇪🇸", gender: "men", performerCategory: "Stunt Performer" },
+  { name: "Hana Sato 佐藤花", nationality: "Japan", flag: "🇯🇵", gender: "women", performerCategory: "Dancer" },
+  { name: "Kevin Andrew Young", nationality: "Canada", flag: "🇨🇦", gender: "men", performerCategory: "Stunt Performer" },
+  { name: "Anna Marie König", nationality: "Germany", flag: "🇩🇪", gender: "women", performerCategory: "Voice Actor" },
+  { name: "Liu Yang 刘阳", nationality: "China", flag: "🇨🇳", gender: "men", performerCategory: "Dancer" },
+  { name: "Charlotte Emily Green", nationality: "UK", flag: "🇬🇧", gender: "women", performerCategory: "Singer" },
+  { name: "Priya Sharma", nationality: "India", flag: "🇮🇳", gender: "women", performerCategory: "Character Performer" },
+  { name: "Diego Alejandro Ruiz", nationality: "Mexico", flag: "🇲🇽", gender: "men", performerCategory: "Stunt Performer" },
 ];
 
 const CONTRACT_DATES = ["2024-11-03", "2025-08-11", "2025-03-22", "2025-06-15", "2026-01-01", "2025-12-31", "2026-03-15", "2025-09-30"];
@@ -139,11 +143,15 @@ function dHash(n: number): number {
   return Math.abs(x);
 }
 
-// Status distribution for mock data: ~88% Employed so the Terminated state is
-// still visible in filtering without staging data by hand.
 function genActorStatus(seed: number): ActorStatus {
   const h = dHash(seed * 71) % 100;
-  return h < 88 ? "Employed" : "Terminated";
+  return h < 88 ? "Employed" : "Off Board";
+}
+
+const VOICE_RANGE_POOL = VOICE_RANGE_OPTIONS;
+function genVoiceRange(seed: number): string | undefined {
+  const h = dHash(seed * 43) % 10;
+  return h < 7 ? VOICE_RANGE_POOL[dHash(seed * 37) % VOICE_RANGE_POOL.length] : undefined;
 }
 
 function genSkillEntries(seed: number): SkillEntry[] {
@@ -168,15 +176,18 @@ function genActors(seed: number, count: number): Actor[] {
     const photoNum = (dHash(seed * 13 + i * 7) % 70) + 1;
     const height = 162 + (dHash(seed + i + 5) % 24);
     const weight = 50 + (dHash(seed + i + 3) % 30);
+    const actorSeed = seed * 100 + i;
     return {
-      id: seed * 100 + i,
+      id: actorSeed,
       ssoId: `${20010000 + (dHash(seed * 5 + i) % 990000)}`,
       name: pool.name, nationality: pool.nationality, flag: pool.flag,
       gender: pool.gender,
       height, weight,
+      performerCategory: pool.performerCategory,
+      voiceRange: genVoiceRange(actorSeed),
       photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
-      status: genActorStatus(seed * 100 + i),
-      skillEntries: genSkillEntries(seed * 100 + i),
+      status: genActorStatus(actorSeed),
+      skillEntries: genSkillEntries(actorSeed),
     };
   });
 }
@@ -223,60 +234,57 @@ function genEventRecords(seed: number): EventRecord[] {
   });
 }
 
-function makeRole(id: string, name: string, homeSeed: number, homeCount: number, swingSeed: number, swingCount: number): Role {
+function makeRole(id: string, name: string, performerCategory: string, homeSeed: number, homeCount: number, swingSeed: number, swingCount: number): Role {
   const vacancy = dHash(homeSeed * 37) % 6;
   return {
-    id, name,
+    id, name, performerCategory,
     headCount: homeCount + vacancy,
     homeActors: genActors(homeSeed, homeCount),
     swingActors: genActors(swingSeed, swingCount),
   };
 }
 
-const DATA: Land[] = [{
-  id: "ftp", label: "Full Time Performer",
-  shows: [
-    { id: "uop", name: "UOP", roles: [
-      makeRole("uop-pw", "Parade Wushu", 101, 5, 102, 2),
-      makeRole("uop-pv", "Parade Viper", 103, 8, 104, 3),
-      makeRole("uop-dragon", "Dragon Dance", 105, 12, 106, 4),
-      makeRole("uop-acrobat", "Acrobat Troupe", 107, 10, 108, 3),
-      makeRole("uop-fan", "Fan Dance", 109, 20, 110, 5),
-      makeRole("uop-drum", "Drum Corps", 111, 15, 112, 4),
-      makeRole("uop-lion", "Lion Dance", 113, 8, 114, 2),
-      makeRole("uop-ribbon", "Ribbon Ensemble", 115, 18, 116, 5),
-      makeRole("uop-stilt", "Stilt Walkers", 117, 6, 118, 2),
-      makeRole("uop-float", "Float Performers", 119, 57, 120, 12),
-    ]},
-    { id: "uchmmg", name: "UCHMMG", roles: [
-      makeRole("uchmmg-ollivanders", "Ollivanders", 201, 16, 202, 3),
-      makeRole("uchmmg-conductor", "Conductor", 203, 3, 204, 1),
-      makeRole("uchmmg-triwizard", "Triwizard Spirit Rally", 205, 18, 206, 4),
-      makeRole("uchmmg-frog", "Frog Choir", 207, 9, 208, 2),
-      makeRole("uchmmg-wand", "Wand Ceremony", 209, 9, 210, 2),
-    ]},
-    { id: "tsmmg", name: "TSMMG", roles: [
-      makeRole("tsmmg-raptor", "Raptor Encounter", 301, 31, 302, 8),
-      makeRole("tsmmg-tf", "Transformers", 303, 23, 304, 6),
-      makeRole("tsmmg-po", "Po Live", 305, 4, 306, 1),
-      makeRole("tsmmg-baby", "Baby Raptor", 307, 3, 308, 1),
-      makeRole("tsmmg-veloci", "Velocicoaster Crew", 309, 10, 310, 3),
-    ]},
-    { id: "rptea", name: "RPTEA", roles: [
-      makeRole("rptea-knights", "Knights Tournament", 401, 45, 402, 10),
-      makeRole("rptea-dragon", "Dragon Show", 403, 30, 404, 8),
-      makeRole("rptea-royal", "Royal Procession", 405, 60, 406, 15),
-      makeRole("rptea-jester", "Jester Performance", 407, 20, 408, 5),
-      makeRole("rptea-guard", "Castle Guard", 409, 71, 410, 18),
-    ]},
-    { id: "pl", name: "PL", roles: [
-      makeRole("pl-main", "Main Stage Cast", 501, 25, 502, 6),
-      makeRole("pl-street", "Street Performers", 503, 20, 504, 5),
-      makeRole("pl-parade", "Parade Lead", 505, 15, 506, 4),
-      makeRole("pl-greet", "Meet & Greet", 507, 11, 508, 3),
-    ]},
-  ],
-}];
+const DATA: Show[] = [
+  { id: "uop", name: "UOP", performanceType: "Parade", roles: [
+    makeRole("uop-pw", "Parade Wushu", "Dancer", 101, 5, 102, 2),
+    makeRole("uop-pv", "Parade Viper", "Dancer", 103, 8, 104, 3),
+    makeRole("uop-dragon", "Dragon Dance", "Dancer", 105, 12, 106, 4),
+    makeRole("uop-acrobat", "Acrobat Troupe", "Stunt Performer", 107, 10, 108, 3),
+    makeRole("uop-fan", "Fan Dance", "Dancer", 109, 20, 110, 5),
+    makeRole("uop-drum", "Drum Corps", "Dancer", 111, 15, 112, 4),
+    makeRole("uop-lion", "Lion Dance", "Dancer", 113, 8, 114, 2),
+    makeRole("uop-ribbon", "Ribbon Ensemble", "Dancer", 115, 18, 116, 5),
+    makeRole("uop-stilt", "Stilt Walkers", "Stunt Performer", 117, 6, 118, 2),
+    makeRole("uop-float", "Float Performers", "Character Performer", 119, 57, 120, 12),
+  ]},
+  { id: "uchmmg", name: "UCHMMG", performanceType: "Stage Musical", roles: [
+    makeRole("uchmmg-ollivanders", "Ollivanders", "Character Performer", 201, 16, 202, 3),
+    makeRole("uchmmg-conductor", "Conductor", "Singer", 203, 3, 204, 1),
+    makeRole("uchmmg-triwizard", "Triwizard Spirit Rally", "Singer", 205, 18, 206, 4),
+    makeRole("uchmmg-frog", "Frog Choir", "Singer", 207, 9, 208, 2),
+    makeRole("uchmmg-wand", "Wand Ceremony", "Character Performer", 209, 9, 210, 2),
+  ]},
+  { id: "tsmmg", name: "TSMMG", performanceType: "Character Meet & Greet", roles: [
+    makeRole("tsmmg-raptor", "Raptor Encounter", "Character Performer", 301, 31, 302, 8),
+    makeRole("tsmmg-tf", "Transformers", "Character Performer", 303, 23, 304, 6),
+    makeRole("tsmmg-po", "Po Live", "Character Performer", 305, 4, 306, 1),
+    makeRole("tsmmg-baby", "Baby Raptor", "Character Performer", 307, 3, 308, 1),
+    makeRole("tsmmg-veloci", "Velocicoaster Crew", "Stunt Performer", 309, 10, 310, 3),
+  ]},
+  { id: "rptea", name: "RPTEA", performanceType: "Stage Musical", roles: [
+    makeRole("rptea-knights", "Knights Tournament", "Stunt Performer", 401, 45, 402, 10),
+    makeRole("rptea-dragon", "Dragon Show", "Dancer", 403, 30, 404, 8),
+    makeRole("rptea-royal", "Royal Procession", "Character Performer", 405, 60, 406, 15),
+    makeRole("rptea-jester", "Jester Performance", "Character Performer", 407, 20, 408, 5),
+    makeRole("rptea-guard", "Castle Guard", "Character Performer", 409, 71, 410, 18),
+  ]},
+  { id: "pl", name: "PL", performanceType: "Stage Musical", roles: [
+    makeRole("pl-main", "Main Stage Cast", "Singer", 501, 25, 502, 6),
+    makeRole("pl-street", "Street Performers", "Dancer", 503, 20, 504, 5),
+    makeRole("pl-parade", "Parade Lead", "Dancer", 505, 15, 506, 4),
+    makeRole("pl-greet", "Meet & Greet", "Character Performer", 507, 11, 508, 3),
+  ]},
+];
 
 // ── Event Experience preset enum (per 0514 doc) ──────────────────────────
 const EVENT_OPTIONS: { event: string; roles: string[] }[] = [
@@ -324,6 +332,8 @@ function genPerformer(seed: number): Actor {
     name: pool.name, nationality: pool.nationality, flag: pool.flag,
     gender: pool.gender,
     height, weight,
+    performerCategory: pool.performerCategory,
+    voiceRange: genVoiceRange(9000 + seed),
     photoUrl: `https://randomuser.me/api/portraits/${pool.gender}/${photoNum}.jpg`,
     homeShow: pair.show, homeRole: pair.role,
     status: genActorStatus(9000 + seed),
@@ -365,14 +375,12 @@ function enrichActor(a: Actor, showName: string, roleName: string): Actor {
 function findActorById(id: number): Actor | null {
   const fromPerformers = PERFORMERS.find((p) => p.id === id);
   if (fromPerformers) return fromPerformers;
-  for (const land of DATA) {
-    for (const show of land.shows) {
-      for (const role of show.roles) {
-        const inHome = role.homeActors.find((x) => x.id === id);
-        if (inHome) return enrichActor(inHome, show.name, role.name);
-        const inSwing = role.swingActors.find((x) => x.id === id);
-        if (inSwing) return enrichActor(inSwing, show.name, role.name);
-      }
+  for (const show of DATA) {
+    for (const role of show.roles) {
+      const inHome = role.homeActors.find((x) => x.id === id);
+      if (inHome) return enrichActor(inHome, show.name, role.name);
+      const inSwing = role.swingActors.find((x) => x.id === id);
+      if (inSwing) return enrichActor(inSwing, show.name, role.name);
     }
   }
   return null;
@@ -381,12 +389,10 @@ function findActorById(id: number): Actor | null {
 const ALL_ACTORS_BY_SSO: Actor[] = (() => {
   const map = new Map<number, Actor>();
   PERFORMERS.forEach((p) => map.set(p.id, p));
-  for (const land of DATA) {
-    for (const show of land.shows) {
-      for (const role of show.roles) {
-        role.homeActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
-        role.swingActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
-      }
+  for (const show of DATA) {
+    for (const role of show.roles) {
+      role.homeActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
+      role.swingActors.forEach((a) => map.set(a.id, enrichActor(a, show.name, role.name)));
     }
   }
   return [...map.values()].sort((a, b) => a.ssoId.localeCompare(b.ssoId));
@@ -576,8 +582,9 @@ interface Filters {
   weightMin: string; weightMax: string;
   gender: string;
   skillType: string; skillSub: string;
-  homeShow: string; homeRole: string;
-  swingShow: string; swingRole: string;
+  show: string; role: string;
+  performerCategory: string;
+  voiceRange: string;
   eventName: string; eventRoleName: string;
   nationality: string;
   status: ActorStatus | "All";
@@ -588,7 +595,9 @@ const EMPTY_FILTERS: Filters = {
   performer: "",
   heightMin: "", heightMax: "", weightMin: "", weightMax: "",
   gender: "", skillType: "", skillSub: "",
-  homeShow: "", homeRole: "", swingShow: "", swingRole: "",
+  show: "", role: "",
+  performerCategory: "",
+  voiceRange: "",
   eventName: "", eventRoleName: "",
   nationality: "",
   status: DEFAULT_FILTER_STATUS,
@@ -604,9 +613,8 @@ function hasAnyFilter(f: Filters): boolean {
 function countActiveFilters(f: Filters): number {
   let n = 0;
   for (const [k, v] of Object.entries(f)) {
-    if (k === "status") {
-      if (v !== DEFAULT_FILTER_STATUS) n++;
-    } else if (v !== "") n++;
+    if (k === "status") { if (v !== DEFAULT_FILTER_STATUS) n++; }
+    else if (v !== "") n++;
   }
   return n;
 }
@@ -625,10 +633,14 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
     if (g && a.gender !== g) return false;
   }
   if (f.skillType && !a.skillEntries?.some((e) => e.type === f.skillType && (!f.skillSub || e.skill === f.skillSub))) return false;
-  if (f.homeShow && a.homeShow !== f.homeShow) return false;
-  if (f.homeRole && a.homeRole !== f.homeRole) return false;
-  if (f.swingShow && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.show === f.swingShow)) return false;
-  if (f.swingRole && !a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing" && r.role === f.swingRole)) return false;
+  if (f.show || f.role) {
+    const matchHome = (!f.show || a.homeShow === f.show) && (!f.role || a.homeRole === f.role);
+    const matchSwing = a.showRoleRecords?.some((r) => r.status === "active" && r.roleType === "swing"
+      && (!f.show || r.show === f.show) && (!f.role || r.role === f.role));
+    if (!matchHome && !matchSwing) return false;
+  }
+  if (f.performerCategory && a.performerCategory !== f.performerCategory) return false;
+  if (f.voiceRange && a.voiceRange !== f.voiceRange) return false;
   if (f.eventName || f.eventRoleName) {
     const hit = a.eventRecords?.some((e) => e.status === "active"
       && (!f.eventName || e.eventName === f.eventName)
@@ -643,7 +655,7 @@ function actorMatchesFilters(a: Actor, f: Filters, statusOf?: (a: Actor) => Acto
   return true;
 }
 
-const ALL_SHOWS = DATA.flatMap((l) => l.shows);
+const ALL_SHOWS = DATA;
 const ALL_NATIONALITIES = [...new Set(ACTOR_POOL.map((a) => a.nationality))].sort();
 const NATIONALITY_FLAGS: Record<string, string> = ACTOR_POOL.reduce((m, a) => {
   m[a.nationality] = a.flag;
@@ -664,41 +676,25 @@ function FilterPanel({ filters, onChange, onClose }: {
   const fieldCls = "h-9 px-2.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-200 text-gray-700 placeholder:text-gray-300 w-full";
   const lblCls = "block text-xs text-gray-500 mb-1";
 
-  const renderShowRolePair = (showKey: StringFilterKey, roleKey: StringFilterKey, showLabel: string) => (
-    <div className="sm:col-span-2">
-      <label className={lblCls}>{showLabel}</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        <select value={filters[showKey]} onChange={(e) => onChange({ ...filters, [showKey]: e.target.value, [roleKey]: "" })} className={fieldCls}>
-          <option value="">请选择</option>
-          {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-        </select>
-        <select value={filters[roleKey]} onChange={(e) => set(roleKey, e.target.value)} disabled={!filters[showKey]} className={fieldCls + " disabled:opacity-50"}>
-          <option value="">请选择</option>
-          {rolesForShow(filters[showKey]).map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-        </select>
-      </div>
-    </div>
-  );
-
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-sm mb-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div>
           <label className={lblCls}>Performer</label>
-          <input value={filters.performer} onChange={(e) => set("performer", e.target.value)} placeholder="请输入SSO/姓名" className={fieldCls} />
+          <input value={filters.performer} onChange={(e) => set("performer", e.target.value)} placeholder="Name or SSO" className={fieldCls} />
         </div>
         <div>
-          <label className={lblCls}>Height Range</label>
+          <label className={lblCls}>Height (cm)</label>
           <div className="grid grid-cols-2 gap-1.5">
-            <input value={filters.heightMin} onChange={(e) => set("heightMin", e.target.value)} placeholder="cm" type="number" className={fieldCls} />
-            <input value={filters.heightMax} onChange={(e) => set("heightMax", e.target.value)} placeholder="cm" type="number" className={fieldCls} />
+            <input value={filters.heightMin} onChange={(e) => set("heightMin", e.target.value)} placeholder="Min" type="number" className={fieldCls} />
+            <input value={filters.heightMax} onChange={(e) => set("heightMax", e.target.value)} placeholder="Max" type="number" className={fieldCls} />
           </div>
         </div>
         <div>
-          <label className={lblCls}>Weight Range</label>
+          <label className={lblCls}>Weight (kg)</label>
           <div className="grid grid-cols-2 gap-1.5">
-            <input value={filters.weightMin} onChange={(e) => set("weightMin", e.target.value)} placeholder="kg" type="number" className={fieldCls} />
-            <input value={filters.weightMax} onChange={(e) => set("weightMax", e.target.value)} placeholder="kg" type="number" className={fieldCls} />
+            <input value={filters.weightMin} onChange={(e) => set("weightMin", e.target.value)} placeholder="Min" type="number" className={fieldCls} />
+            <input value={filters.weightMax} onChange={(e) => set("weightMax", e.target.value)} placeholder="Max" type="number" className={fieldCls} />
           </div>
         </div>
         <div>
@@ -710,6 +706,33 @@ function FilterPanel({ filters, onChange, onClose }: {
           </select>
         </div>
         <div>
+          <label className={lblCls}>Performer Category</label>
+          <select value={filters.performerCategory} onChange={(e) => set("performerCategory", e.target.value)} className={fieldCls}>
+            <option value="">All</option>
+            {PERFORMER_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={lblCls}>Voice Range</label>
+          <select value={filters.voiceRange} onChange={(e) => set("voiceRange", e.target.value)} className={fieldCls}>
+            <option value="">All</option>
+            {VOICE_RANGE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className={lblCls}>Show &amp; Role</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            <select value={filters.show} onChange={(e) => onChange({ ...filters, show: e.target.value, role: "" })} className={fieldCls}>
+              <option value="">All Shows</option>
+              {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            <select value={filters.role} onChange={(e) => set("role", e.target.value)} disabled={!filters.show} className={fieldCls + " disabled:opacity-50"}>
+              <option value="">All Roles</option>
+              {rolesForShow(filters.show).map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
           <label className={lblCls}>Skillset</label>
           <div className="grid grid-cols-2 gap-1.5">
             <select value={filters.skillType} onChange={(e) => onChange({ ...filters, skillType: e.target.value, skillSub: "" })} className={fieldCls}>
@@ -717,26 +740,20 @@ function FilterPanel({ filters, onChange, onClose }: {
               {SKILLSET_CATEGORIES.map((c) => <option key={c.type} value={c.type}>{c.type}</option>)}
             </select>
             <select value={filters.skillSub} onChange={(e) => set("skillSub", e.target.value)} disabled={!filters.skillType} className={fieldCls + " disabled:opacity-50"}>
-              <option value="">Subcategory</option>
+              <option value="">Sub</option>
               {skillsForType.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
-        {renderShowRolePair("homeShow", "homeRole", "Home Show & Role")}
-        {renderShowRolePair("swingShow", "swingRole", "Swing Show & Role")}
         <div className="sm:col-span-2">
           <label className={lblCls}>Event Experience</label>
           <div className="grid grid-cols-2 gap-1.5">
-            <select value={filters.eventName}
-              onChange={(e) => onChange({ ...filters, eventName: e.target.value, eventRoleName: "" })}
-              className={fieldCls}>
-              <option value="">Event Name</option>
+            <select value={filters.eventName} onChange={(e) => onChange({ ...filters, eventName: e.target.value, eventRoleName: "" })} className={fieldCls}>
+              <option value="">All Events</option>
               {EVENT_NAME_LIST.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-            <select value={filters.eventRoleName} onChange={(e) => set("eventRoleName", e.target.value)}
-              disabled={!filters.eventName}
-              className={fieldCls + " disabled:opacity-50"}>
-              <option value="">Role Name</option>
+            <select value={filters.eventRoleName} onChange={(e) => set("eventRoleName", e.target.value)} disabled={!filters.eventName} className={fieldCls + " disabled:opacity-50"}>
+              <option value="">All Roles</option>
               {rolesForEvent(filters.eventName).map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
@@ -744,7 +761,7 @@ function FilterPanel({ filters, onChange, onClose }: {
         <div>
           <label className={lblCls}>Nationality</label>
           <select value={filters.nationality} onChange={(e) => set("nationality", e.target.value)} className={fieldCls}>
-            <option value="">请选择</option>
+            <option value="">All</option>
             {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
@@ -770,34 +787,35 @@ function FilterPanel({ filters, onChange, onClose }: {
 
 // ── Basic Info — mobile-only sub page ──────────────────────────────────────
 
+type BasicForm = { nationality: string; gender: "men" | "women"; height: string; weight: string; voiceRange: string; homeShow: string; homeRole: string };
+
 function BasicInfoMobile({
-  actor, headshotUrl, status, nationality, flag, homeShow, homeRole,
+  actor, headshotUrl, status, nationality, flag, homeShow, homeRole, voiceRange,
   editing, form, onForm, onEdit, onCancelEdit, onSave, onBack,
 }: {
   actor: Actor; headshotUrl: string; status: ActorStatus;
-  nationality: string; flag: string; homeShow: string; homeRole: string;
+  nationality: string; flag: string; homeShow: string; homeRole: string; voiceRange: string;
   editing: boolean;
-  form: { nationality: string; homeShow: string; homeRole: string };
-  onForm: (f: { nationality: string; homeShow: string; homeRole: string }) => void;
+  form: BasicForm;
+  onForm: React.Dispatch<React.SetStateAction<BasicForm>>;
   onEdit: () => void; onCancelEdit: () => void; onSave: () => void;
   onBack: () => void;
 }) {
   const formRoles = ALL_SHOWS.find((s) => s.name === form.homeShow)?.roles ?? [];
-  const readonlyFields: { label: string; value: string }[] = [
-    { label: "SSO", value: actor.ssoId },
-    { label: "Name", value: actor.name },
-    { label: "Gender", value: actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—" },
-    { label: "Height", value: `${actor.height} cm` },
-    { label: "Weight", value: `${actor.weight} kg` },
-  ];
-  const selectCls = "w-40 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white text-right focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-50";
+  const inputCls = "w-36 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white text-right focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-50";
+
+  const readRow = (label: string, value: string) => (
+    <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
+      <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+      <span className="text-sm text-gray-800 text-right truncate">{value}</span>
+    </li>
+  );
 
   return (
     <div className="md:hidden fixed inset-0 z-[55] bg-white flex flex-col">
       <div className="flex-shrink-0 h-12 flex items-center justify-between px-2 border-b border-gray-100 bg-white">
         <div className="flex items-center">
-          <button onClick={onBack} aria-label="Back"
-            className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
+          <button onClick={onBack} aria-label="Back" className="p-2 -ml-1 rounded-md text-gray-600 hover:bg-gray-100">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <span className="ml-1 text-sm font-semibold text-gray-900">Basic Info</span>
@@ -813,8 +831,7 @@ function BasicInfoMobile({
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="flex items-center gap-3 px-4 py-4 bg-gray-50 border-b border-gray-100">
-          <img src={headshotUrl} alt={actor.name}
-            className="w-14 h-14 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
+          <img src={headshotUrl} alt={actor.name} className="w-14 h-14 rounded-full object-cover object-top ring-2 ring-white shadow-sm" />
           <div className="min-w-0 flex-1">
             <p className="text-base font-bold text-gray-900 truncate">{actor.name}</p>
             <p className="text-xs text-gray-400 font-mono">{actor.ssoId}</p>
@@ -822,28 +839,57 @@ function BasicInfoMobile({
           <StatusBadge status={status} />
         </div>
         <ul className="divide-y divide-gray-100">
-          {readonlyFields.map(({ label, value }) => (
-            <li key={label} className="flex items-center justify-between gap-3 px-4 py-3">
-              <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
-              <span className="text-sm text-gray-800 text-right truncate">{value}</span>
-            </li>
-          ))}
-          {/* Nationality (editable dropdown) */}
+          {readRow("SSO", actor.ssoId)}
+          {readRow("Name", actor.name)}
+          {/* Gender */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Gender</span>
+            {editing ? (
+              <select value={form.gender} onChange={(e) => onForm((f) => ({ ...f, gender: e.target.value as "men" | "women" }))} className={inputCls}>
+                <option value="men">Male</option><option value="women">Female</option>
+              </select>
+            ) : readRow("", actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—").props.children[1]}
+          </li>
+          {/* Height */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Height</span>
+            {editing ? (
+              <input type="number" value={form.height} onChange={(e) => onForm((f) => ({ ...f, height: e.target.value }))} className={inputCls} />
+            ) : <span className="text-sm text-gray-800">{actor.height} cm</span>}
+          </li>
+          {/* Weight */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Weight</span>
+            {editing ? (
+              <input type="number" value={form.weight} onChange={(e) => onForm((f) => ({ ...f, weight: e.target.value }))} className={inputCls} />
+            ) : <span className="text-sm text-gray-800">{actor.weight} kg</span>}
+          </li>
+          {/* Voice Range */}
+          <li className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs text-gray-400 flex-shrink-0">Voice Range</span>
+            {editing ? (
+              <select value={form.voiceRange} onChange={(e) => onForm((f) => ({ ...f, voiceRange: e.target.value }))} className={inputCls}>
+                <option value="">—</option>
+                {VOICE_RANGE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            ) : <span className="text-sm text-gray-800 text-right truncate">{voiceRange || "—"}</span>}
+          </li>
+          {/* Nationality */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-xs text-gray-400 flex-shrink-0">Nationality</span>
             {editing ? (
-              <select value={form.nationality} onChange={(e) => onForm({ ...form, nationality: e.target.value })} className={selectCls}>
+              <select value={form.nationality} onChange={(e) => onForm((f) => ({ ...f, nationality: e.target.value }))} className={inputCls}>
                 {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             ) : (
               <span className="text-sm text-gray-800 text-right truncate">{flag} {nationality}</span>
             )}
           </li>
-          {/* Home Show (editable) */}
+          {/* Home Show */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-xs text-gray-400 flex-shrink-0">Home Show</span>
             {editing ? (
-              <select value={form.homeShow} onChange={(e) => onForm({ ...form, homeShow: e.target.value, homeRole: "" })} className={selectCls}>
+              <select value={form.homeShow} onChange={(e) => onForm((f) => ({ ...f, homeShow: e.target.value, homeRole: "" }))} className={inputCls}>
                 <option value="">Select show</option>
                 {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
@@ -851,11 +897,11 @@ function BasicInfoMobile({
               <span className="text-sm text-gray-800 text-right truncate">{homeShow || "—"}</span>
             )}
           </li>
-          {/* Home Role (editable) */}
+          {/* Home Role */}
           <li className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-xs text-gray-400 flex-shrink-0">Home Role</span>
             {editing ? (
-              <select value={form.homeRole} onChange={(e) => onForm({ ...form, homeRole: e.target.value })} disabled={!form.homeShow} className={selectCls}>
+              <select value={form.homeRole} onChange={(e) => onForm((f) => ({ ...f, homeRole: e.target.value }))} disabled={!form.homeShow} className={inputCls}>
                 <option value="">Select role</option>
                 {formRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
               </select>
@@ -894,16 +940,25 @@ function ActorDetailDrawer({
   const askConfirm = (title: string, message: string, onConfirm: () => void) =>
     setConfirm({ title, message, onConfirm });
 
-  // ── Basic Info (editable: nationality dropdown + home show/role) ───────────
+  // ── Basic Info (all fields editable) ─────────────────────────────────────
   const [nationality, setNationality] = useState(actor.nationality);
   const [homeShow, setHomeShow] = useState(actor.homeShow ?? "");
   const [homeRole, setHomeRole] = useState(actor.homeRole ?? "");
   const flag = NATIONALITY_FLAGS[nationality] ?? actor.flag;
   const [editingBasic, setEditingBasic] = useState(false);
-  const [basicForm, setBasicForm] = useState({ nationality: actor.nationality, homeShow: actor.homeShow ?? "", homeRole: actor.homeRole ?? "" });
+  const [basicForm, setBasicForm] = useState({
+    nationality: actor.nationality,
+    gender: actor.gender ?? "men",
+    height: String(actor.height),
+    weight: String(actor.weight),
+    voiceRange: actor.voiceRange ?? "",
+    homeShow: actor.homeShow ?? "",
+    homeRole: actor.homeRole ?? "",
+  });
+  const [voiceRange, setVoiceRange] = useState(actor.voiceRange ?? "");
   const basicFormRoles = ALL_SHOWS.find((s) => s.name === basicForm.homeShow)?.roles ?? [];
   function startEditBasic() {
-    setBasicForm({ nationality, homeShow, homeRole });
+    setBasicForm({ nationality, gender: actor.gender ?? "men", height: String(actor.height), weight: String(actor.weight), voiceRange, homeShow, homeRole });
     setEditingBasic(true);
   }
 
@@ -954,8 +1009,8 @@ function ActorDetailDrawer({
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [addingMedia, setAddingMedia] = useState(false);
-  const [mediaForm, setMediaForm] = useState<{ note: string; file: File | null; url: string; type: "photo" | "video" }>({
-    note: "", file: null, url: "", type: "photo",
+  const [mediaForm, setMediaForm] = useState<{ note: string; photographer: string; showRole: string; file: File | null; url: string; type: "photo" | "video" }>({
+    note: "", photographer: "", showRole: "", file: null, url: "", type: "photo",
   });
   const portfolioInputRef = useRef<HTMLInputElement>(null);
 
@@ -985,8 +1040,8 @@ function ActorDetailDrawer({
       setAddingMedia(false);
       return;
     }
-    setMediaFiles((p) => [...p, { type: mediaForm.type, url: mediaForm.url, note: mediaForm.note }]);
-    setMediaForm({ note: "", file: null, url: "", type: "photo" });
+    setMediaFiles((p) => [...p, { type: mediaForm.type, url: mediaForm.url, note: mediaForm.note, photographer: mediaForm.photographer, showRole: mediaForm.showRole }]);
+    setMediaForm({ note: "", photographer: "", showRole: "", file: null, url: "", type: "photo" });
     setAddingMedia(false);
   }
 
@@ -1049,6 +1104,7 @@ function ActorDetailDrawer({
     const homeChanged = f.homeShow !== homeShow || f.homeRole !== homeRole;
     const apply = () => {
       setNationality(f.nationality);
+      setVoiceRange(f.voiceRange);
       if (homeChanged) {
         setShowRoleRecords((prev) => {
           const next = prev.map((r) =>
@@ -1123,7 +1179,7 @@ function ActorDetailDrawer({
       {section === "basic" && (
         <BasicInfoMobile
           actor={actor} headshotUrl={headshotUrl} status={currentStatus}
-          nationality={nationality} flag={flag} homeShow={homeShow} homeRole={homeRole}
+          nationality={nationality} flag={flag} homeShow={homeShow} homeRole={homeRole} voiceRange={voiceRange}
           editing={editingBasic} form={basicForm} onForm={setBasicForm}
           onEdit={startEditBasic} onCancelEdit={() => setEditingBasic(false)} onSave={commitBasic}
           onBack={() => onOpenSection(null)} />
@@ -1287,35 +1343,67 @@ function ActorDetailDrawer({
           )}
         </div>
 
-        {/* Basic Info — single row (desktop only): SSO / Gender / Nationality / Height / Weight. */}
-        <div className="hidden md:grid flex-shrink-0 grid-cols-5 border-b border-gray-100">
-          <div className="px-2 py-2.5 text-center border-r border-gray-100">
-            <p className="text-[10px] text-gray-400 mb-0.5">SSO</p>
-            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate font-mono">{actor.ssoId}</p>
-          </div>
+        {/* Basic Info — desktop row: SSO / Gender / Nationality / Height / Weight / Voice Range */}
+        <div className="hidden md:grid flex-shrink-0 grid-cols-6 border-b border-gray-100">
+          {[
+            { label: "SSO", value: actor.ssoId, mono: true },
+          ].map(({ label, value, mono }) => (
+            <div key={label} className="px-2 py-2.5 text-center border-r border-gray-100">
+              <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
+              <p className={`text-[11px] font-semibold text-gray-800 leading-snug truncate ${mono ? "font-mono" : ""}`}>{value}</p>
+            </div>
+          ))}
           <div className="px-2 py-2.5 text-center border-r border-gray-100">
             <p className="text-[10px] text-gray-400 mb-0.5">Gender</p>
-            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—"}</p>
+            {editingBasic ? (
+              <select value={basicForm.gender} onChange={(e) => setBasicForm((f) => ({ ...f, gender: e.target.value as "men" | "women" }))}
+                className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200">
+                <option value="men">Male</option><option value="women">Female</option>
+              </select>
+            ) : (
+              <p className="text-[11px] font-semibold text-gray-800">{actor.gender === "men" ? "Male" : actor.gender === "women" ? "Female" : "—"}</p>
+            )}
           </div>
           <div className="px-2 py-2.5 text-center border-r border-gray-100">
             <p className="text-[10px] text-gray-400 mb-0.5">Nationality</p>
             {editingBasic ? (
-              <select value={basicForm.nationality}
-                onChange={(e) => setBasicForm((f) => ({ ...f, nationality: e.target.value }))}
+              <select value={basicForm.nationality} onChange={(e) => setBasicForm((f) => ({ ...f, nationality: e.target.value }))}
                 className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200">
                 {ALL_NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             ) : (
-              <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{flag} {nationality}</p>
+              <p className="text-[11px] font-semibold text-gray-800 truncate">{flag} {nationality}</p>
             )}
           </div>
           <div className="px-2 py-2.5 text-center border-r border-gray-100">
             <p className="text-[10px] text-gray-400 mb-0.5">Height</p>
-            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.height} cm</p>
+            {editingBasic ? (
+              <input type="number" value={basicForm.height} onChange={(e) => setBasicForm((f) => ({ ...f, height: e.target.value }))}
+                className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200 text-center" />
+            ) : (
+              <p className="text-[11px] font-semibold text-gray-800">{actor.height} cm</p>
+            )}
+          </div>
+          <div className="px-2 py-2.5 text-center border-r border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-0.5">Weight</p>
+            {editingBasic ? (
+              <input type="number" value={basicForm.weight} onChange={(e) => setBasicForm((f) => ({ ...f, weight: e.target.value }))}
+                className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200 text-center" />
+            ) : (
+              <p className="text-[11px] font-semibold text-gray-800">{actor.weight} kg</p>
+            )}
           </div>
           <div className="px-2 py-2.5 text-center">
-            <p className="text-[10px] text-gray-400 mb-0.5">Weight</p>
-            <p className="text-[11px] font-semibold text-gray-800 leading-snug truncate">{actor.weight} kg</p>
+            <p className="text-[10px] text-gray-400 mb-0.5">Voice Range</p>
+            {editingBasic ? (
+              <select value={basicForm.voiceRange} onChange={(e) => setBasicForm((f) => ({ ...f, voiceRange: e.target.value }))}
+                className="w-full text-[11px] px-1 py-0.5 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-brand-200">
+                <option value="">—</option>
+                {VOICE_RANGE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            ) : (
+              <p className="text-[11px] font-semibold text-gray-800 truncate">{voiceRange || "—"}</p>
+            )}
           </div>
         </div>
 
@@ -1461,13 +1549,13 @@ function ActorDetailDrawer({
 
           {/* ── Attachment ── */}
           <div className="border-b border-gray-100" style={{ order: 4 }}>
-            <input ref={portfolioInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePortfolioPick} />
+            <input ref={portfolioInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handlePortfolioPick} />
             <SectionHeader
               title="Show Photos" count={mediaFiles.length}
               editing={addingMedia} collapsed={collapsed.attachment}
               onToggleCollapse={() => toggle("attachment")}
               onAdd={() => setAddingMedia(true)} addLabel="Add"
-              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", file: null, url: "", type: "photo" }); }}
+              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", photographer: "", showRole: "", file: null, url: "", type: "photo" }); }}
               onSave={saveMedia}
             />
             {!collapsed.attachment && (
@@ -1490,6 +1578,21 @@ function ActorDetailDrawer({
                         <span className="text-xs">Click to select photo(s)</span>
                       </div>
                     )}
+                    <div>
+                      <label className={labelCls}>Photographer (optional)</label>
+                      <input value={mediaForm.photographer ?? ""} onChange={(e) => setMediaForm((p) => ({ ...p, photographer: e.target.value }))}
+                        className={inputCls} placeholder="Photographer name" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Show &amp; Role (optional)</label>
+                      <select value={mediaForm.showRole ?? ""} onChange={(e) => setMediaForm((p) => ({ ...p, showRole: e.target.value }))}
+                        className={inputCls + " bg-white"}>
+                        <option value="">Select</option>
+                        {SHOW_ROLE_PAIRS.map((p) => (
+                          <option key={`${p.show}/${p.role}`} value={`${p.show}/${p.role}`}>{p.show} / {p.role}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className={labelCls}>Note (optional)</label>
                       <input value={mediaForm.note} onChange={(e) => setMediaForm((p) => ({ ...p, note: e.target.value }))}
@@ -1519,16 +1622,25 @@ function ActorDetailDrawer({
                             className="absolute inset-0 opacity-0 group-hover/media:opacity-100 bg-black/20 transition-opacity flex items-center justify-center">
                             <Eye className="w-5 h-5 text-white drop-shadow" />
                           </button>
-                          <button onClick={() => askConfirm("Remove photo", "This photo will be removed from Show Photos. Continue?",
-                            () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)))}
-                            className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors opacity-0 group-hover/media:opacity-100">
-                            <X className="w-3 h-3" />
-                          </button>
+                          <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                            <a href={f.url} download={`photo_${i + 1}.jpg`}
+                              className="w-5 h-5 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center text-white"
+                              onClick={(e) => e.stopPropagation()}>
+                              <Download className="w-3 h-3" />
+                            </a>
+                            <button onClick={() => askConfirm("Remove photo", "Remove this photo from Show Photos?",
+                              () => setMediaFiles((p) => p.filter((_, idx) => idx !== i)))}
+                              className="w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
-                        {f.note && (
-                          <p className="mt-1 text-[10px] text-gray-400 leading-tight line-clamp-2 cursor-default" title={f.note}>
-                            {f.note}
-                          </p>
+                        {(f.note || f.photographer || f.showRole) && (
+                          <div className="mt-1 space-y-0.5">
+                            {f.showRole && <p className="text-[10px] text-brand-600 font-medium">{f.showRole}</p>}
+                            {f.photographer && <p className="text-[10px] text-gray-400">📷 {f.photographer}</p>}
+                            {f.note && <p className="text-[10px] text-gray-400 line-clamp-1">{f.note}</p>}
+                          </div>
                         )}
                       </div>
                     ))}
@@ -1657,12 +1769,19 @@ function ActorDetailDrawer({
                             <span className="text-xs text-gray-300">/</span>
                             <span className="text-xs font-medium text-gray-700 truncate">{rec.role}</span>
                           </div>
-                          {inactive ? (
-                            <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
-                          ) : (
-                            <button onClick={() => setInactivateTarget({ kind: "showRole", id: rec.id, label: `${rec.show} / ${rec.role}` })}
-                              className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0">Set inactive</button>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {inactive ? (
+                              <span className="text-xs text-gray-300">Inactive</span>
+                            ) : (
+                              <button onClick={() => setInactivateTarget({ kind: "showRole", id: rec.id, label: `${rec.show} / ${rec.role}` })}
+                                className="text-xs text-amber-500 hover:text-amber-700 transition-colors">Set inactive</button>
+                            )}
+                            <button onClick={() => askConfirm("Delete Record", `Delete "${rec.show} / ${rec.role}"?`,
+                              () => setShowRoleRecords((p) => p.filter((x) => x.id !== rec.id)))}
+                              className="p-0.5 text-gray-300 hover:text-red-500 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                         {(rec.date && rec.date !== "—") || rec.endDate ? (
                           <p className="mt-1 text-[10px] text-gray-400">
@@ -1733,12 +1852,19 @@ function ActorDetailDrawer({
                           <span className="text-xs text-gray-300 flex-shrink-0">&amp;</span>
                           <span className="text-xs font-medium text-gray-700 truncate">{rec.roleName}</span>
                         </div>
-                        {inactive ? (
-                          <span className="text-xs text-gray-300 flex-shrink-0">Inactive</span>
-                        ) : (
-                          <button onClick={() => setInactivateTarget({ kind: "event", id: rec.id, label: `${rec.eventName} & ${rec.roleName}` })}
-                            className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5 rounded transition-colors flex-shrink-0">Set inactive</button>
-                        )}
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {inactive ? (
+                            <span className="text-xs text-gray-300">Inactive</span>
+                          ) : (
+                            <button onClick={() => setInactivateTarget({ kind: "event", id: rec.id, label: `${rec.eventName} & ${rec.roleName}` })}
+                              className="text-xs text-amber-500 hover:text-amber-700 transition-colors">Set inactive</button>
+                          )}
+                          <button onClick={() => askConfirm("Delete Record", `Delete "${rec.eventName} — ${rec.roleName}"?`,
+                            () => setEventRecords((p) => p.filter((x) => x.id !== rec.id)))}
+                            className="p-0.5 text-gray-300 hover:text-red-500 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                       {rec.startDate || rec.endDate ? (
                         <p className="mt-1 text-[10px] text-gray-400">
@@ -1897,23 +2023,18 @@ function ExcelImportModal({ title, subtitle, columns, sample, hint, fileBaseName
   );
 }
 
-// ── Roster Import (onboarding) ────────────────────────────────────────────
-// 0522 spec: SSO is the primary key. The system handles three scenarios at
-// commit time (we describe them in the hint; the actual conflict-resolution
-// dialog is mocked at parent level since this is a demo):
-//  • SSO not found → create.
-//  • SSO exists & Active → prompt to overwrite changed fields, keep the rest.
-//  • SSO exists & Inactive → prompt to reactivate + overwrite.
+// ── Import Performers ─────────────────────────────────────────────────────
+// Fields: SSO (optional), Name*, Nationality*, Gender*, Height*, Weight*, Voice Range (optional)
+// No SSO → auto-assign 3xxxxxxx starting from 30000001.
+// Rehire: if SSO exists and status ≠ Employed, prompt to reactivate.
 const PERFORMER_IMPORT_COLUMNS: ImportColumn[] = [
-  { key: "SSO", required: false },
+  { key: "SSO", required: false, hint: "Leave blank to auto-assign a 3-prefix ID" },
   { key: "Full Name", required: true },
-  { key: "Phone (if no SSO)", required: false },
-  { key: "Nationality", required: false },
-  { key: "Gender", required: false },
-  { key: "Height (cm)", required: false },
-  { key: "Weight (kg)", required: false },
-  { key: "Home Show", required: false },
-  { key: "Home Role", required: false },
+  { key: "Nationality", required: true },
+  { key: "Gender", required: true },
+  { key: "Height (cm)", required: true },
+  { key: "Weight (kg)", required: true },
+  { key: "Voice Range", required: false },
 ];
 
 function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommit?: (rows: string[][]) => void }) {
@@ -1922,14 +2043,14 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
       title="Import Performers"
       subtitle="Onboard performers in bulk (PC only)"
       columns={PERFORMER_IMPORT_COLUMNS}
-      sample={["20017233", "Arthur William Bennett", "", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
-      fileBaseName="performer_onboarding"
-      hint={<>{" "}Override fields: gender, nationality, height, weight, home show, home role. Leave SSO blank if not yet issued — fill the phone number column instead; the row appears under <span className="font-semibold">SSO Binding</span> until bound.</>}
+      sample={["20017233", "Arthur William Bennett", "UK", "Male", "178", "72", "Tenor"]}
+      fileBaseName="performer_import"
+      hint={<>{" "}Default status: Employed. SSO blank → auto-assigned 3-prefix ID from 30000001. If duplicate SSO exists and is not Employed, you will be prompted to confirm rehire.</>}
       validateRow={(row) => {
         const sso = String(row[0] ?? "").trim();
-        const phone = String(row[2] ?? "").trim();
-        if (!sso && !phone) return "Either SSO or phone is required";
-        if (sso && !/^\d{8}$/.test(sso)) return "SSO must be 8 digits";
+        if (sso && !/^[23]\d{7}$/.test(sso)) return "SSO must be 8 digits starting with 2 or 3";
+        if (!String(row[1] ?? "").trim()) return "Full Name is required";
+        if (!String(row[2] ?? "").trim()) return "Nationality is required";
         return null;
       }}
       onImport={(rows) => onCommit?.(rows)}
@@ -1938,13 +2059,129 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
   );
 }
 
-// ── Update Basic Info Import (per 0527 spec) ───────────────────────────────
+// ── Import Event Experience ────────────────────────────────────────────────
+const EVENT_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Event Name", required: true },
+  { key: "Role Name", required: true },
+  { key: "Start Date", required: true },
+  { key: "End Date", required: false },
+];
+
+function ImportEventExperienceModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Event Experience"
+      subtitle="Bulk import event experience records"
+      columns={EVENT_IMPORT_COLUMNS}
+      sample={["20017233", "2025 Hua Pi", "狐妖", "2025-10-01", "2025-10-31"]}
+      fileBaseName="event_experience_import"
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Import Swing Role ─────────────────────────────────────────────────────
+const SWING_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: "SSO", required: true },
+  { key: "Show", required: true },
+  { key: "Role", required: true },
+  { key: "Effective Date", required: true },
+];
+
+function ImportSwingRoleModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ExcelImportModal
+      title="Import Swing Role"
+      subtitle="Bulk import swing role assignments"
+      columns={SWING_IMPORT_COLUMNS}
+      sample={["20017233", "UCHMMG", "Frog Choir", "2025-06-01"]}
+      fileBaseName="swing_role_import"
+      onClose={onClose}
+    />
+  );
+}
+
+// ── Import Headshot ────────────────────────────────────────────────────────
+function ImportHeadshotModal({ onClose }: { onClose: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<{ name: string; sso: string; url: string }[]>([]);
+
+  function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    const parsed = picked.map((f) => {
+      const sso = f.name.split("_")[0];
+      return { name: f.name, sso, url: URL.createObjectURL(f) };
+    });
+    setFiles(parsed);
+    e.target.value = "";
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Import Headshots</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Batch upload headshot photos matched by filename prefix.</p>
+          </div>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-5 sm:px-6 py-4 space-y-4 overflow-y-auto">
+          <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-xs text-amber-700">
+            <strong>Naming convention:</strong> Files must be named <code className="bg-amber-100 px-1 rounded">SSO_description.jpg</code> (e.g. <code className="bg-amber-100 px-1 rounded">20017233_stage.jpg</code>). The part before the first <code className="bg-amber-100 px-1 rounded">_</code> is used to match the performer by SSO.
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+          <div onClick={() => fileInputRef.current?.click()}
+            className="border-2 border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-brand-300 hover:text-brand-400 cursor-pointer transition-colors">
+            <Upload className="w-6 h-6" />
+            <span className="text-sm font-medium">Click to select photos</span>
+          </div>
+          {files.length > 0 && (
+            <div className="overflow-auto rounded-xl border border-gray-100 max-h-56">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2">File</th>
+                    <th className="text-left px-3 py-2">Matched SSO</th>
+                    <th className="text-left px-3 py-2">Preview</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {files.map((f) => (
+                    <tr key={f.name}>
+                      <td className="px-3 py-2 text-gray-700 font-mono">{f.name}</td>
+                      <td className="px-3 py-2 font-mono text-brand-600">{f.sso}</td>
+                      <td className="px-3 py-2">
+                        <img src={f.url} alt="" className="w-8 h-8 rounded object-cover" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
+          <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button onClick={onClose} disabled={files.length === 0}
+            className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40">
+            Import {files.length > 0 ? `(${files.length})` : ""}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Update Basic Info Import ───────────────────────────────────────────────
 const UPDATE_BASIC_COLUMNS: ImportColumn[] = [
   { key: "SSO", required: true },
   { key: "Nationality", required: false },
   { key: "Gender", required: false },
   { key: "Height (cm)", required: false },
   { key: "Weight (kg)", required: false },
+  { key: "Voice Range", required: false },
   { key: "Home Show", required: false },
   { key: "Home Role", required: false },
 ];
@@ -1955,12 +2192,12 @@ function UpdateBasicInfoModal({ onClose }: { onClose: () => void }) {
       title="Update Basic Info"
       subtitle="Update existing performers' basic info in bulk (PC only)"
       columns={UPDATE_BASIC_COLUMNS}
-      sample={["20017233", "UK", "Male", "178", "72", "UOP", "Dragon Dance"]}
+      sample={["20017233", "UK", "Male", "178", "72", "Tenor", "UOP", "Dragon Dance"]}
       fileBaseName="update_basic_info"
-      hint={<>{" "}Matched to existing performers by SSO. Only non-empty cells overwrite — blanks leave the current value unchanged.</>}
+      hint={<>{" "}Matched by SSO. Non-empty cells overwrite; blanks leave existing values unchanged.</>}
       validateRow={(row) => {
         const sso = String(row[0] ?? "").trim();
-        if (!/^2\d{7}$/.test(sso)) return "SSO must be an 8-digit number starting with 2";
+        if (!VALID_SSO.test(sso)) return "SSO must be an 8-digit number starting with 2";
         return null;
       }}
       onClose={onClose}
@@ -1968,21 +2205,25 @@ function UpdateBasicInfoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Replace SSO (per 0527 spec) ─────────────────────────────────────────────
-// Lists every performer whose SSO is NOT an 8-digit "2…" id. The user types a
-// replacement per row (or downloads a template, fills it, and re-imports). New
-// SSOs must satisfy the 8-digit "2…" rule.
+// ── Replace SSO ─────────────────────────────────────────────────────────────
+// Lists performers whose SSO starts with 3 (auto-generated on import without
+// a real company SSO). The user provides replacement 2-starting 8-digit SSOs.
+const AUTO_SSO = /^3\d{7}$/;
 const VALID_SSO = /^2\d{7}$/;
 
 function SsoReplacementModal({ onClose }: { onClose: () => void }) {
   const importRef = useRef<HTMLInputElement>(null);
-  const invalidActors = useMemo(() => ALL_ACTORS_BY_SSO.filter((a) => !VALID_SSO.test(a.ssoId)), []);
+  const invalidActors = useMemo(() => ALL_ACTORS_BY_SSO.filter((a) => AUTO_SSO.test(a.ssoId)), []);
   const [edits, setEdits] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<Set<number>>(new Set());
 
   function downloadTemplate() {
-    const header = ["SSO (old) *", "New SSO *", "Name"];
-    const rows = invalidActors.map((a) => [a.ssoId, "", a.name]);
+    const header = ["Old SSO", "Name", "Gender", "New SSO *"];
+    const rows = invalidActors.map((a) => [
+      a.ssoId, a.name,
+      a.gender === "men" ? "Male" : a.gender === "women" ? "Female" : "",
+      "",
+    ]);
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "replace_sso");
@@ -2031,7 +2272,7 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">Replace SSO</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Performers whose SSO isn&apos;t an 8-digit number starting with 2.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Performers with auto-generated SSOs (starting with 3) awaiting real company SSO assignment.</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
@@ -2053,14 +2294,15 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {invalidActors.length === 0 ? (
-            <p className="text-sm text-gray-300 py-8 text-center">All performers already have a valid SSO.</p>
+            <p className="text-sm text-gray-300 py-8 text-center">No performers with auto-generated SSOs.</p>
           ) : (
             <div className="overflow-auto rounded-xl border border-gray-100">
               <table className="w-full text-xs">
                 <thead className="text-[10px] uppercase text-gray-400 border-b border-gray-100 bg-gray-50 sticky top-0">
                   <tr>
+                    <th className="text-left px-3 py-2">Old SSO</th>
                     <th className="text-left px-3 py-2">Name</th>
-                    <th className="text-left px-3 py-2">Current SSO</th>
+                    <th className="text-left px-3 py-2">Gender</th>
                     <th className="text-left px-3 py-2 w-44">New SSO</th>
                     <th className="px-2 py-2 w-10"></th>
                   </tr>
@@ -2072,8 +2314,9 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
                     const valid = VALID_SSO.test(val.trim());
                     return (
                       <tr key={a.id} className={isSaved ? "bg-emerald-50/40" : ""}>
+                        <td className="px-3 py-2 font-mono text-gray-400 whitespace-nowrap">{a.ssoId}</td>
                         <td className="px-3 py-2 text-gray-800 whitespace-nowrap">{a.name}</td>
-                        <td className="px-3 py-2 font-mono text-gray-400">{a.ssoId}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{a.gender === "men" ? "Male" : a.gender === "women" ? "Female" : "—"}</td>
                         <td className="px-3 py-2">
                           {isSaved ? (
                             <span className="font-mono text-emerald-600 font-medium">{val}</span>
@@ -2109,10 +2352,8 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Terminate Performers Dialog (per 0527 spec) ─────────────────────────────
-// Paste one or many SSOs → load a confirmation list (SSO / name / home show /
-// home role) → confirm flips each matched performer to Terminated.
-function TerminationDialog({ onClose }: { onClose: () => void }) {
+// ── Off Board Dialog ──────────────────────────────────────────────────────
+function OffBoardDialog({ onClose }: { onClose: () => void }) {
   const { setStatusFor, statusOf } = useActorStatus();
   const [raw, setRaw] = useState("");
   const [loaded, setLoaded] = useState<{ matched: Actor[]; unmatched: string[] } | null>(null);
@@ -2128,21 +2369,21 @@ function TerminationDialog({ onClose }: { onClose: () => void }) {
     setLoaded({ matched, unmatched });
   }
 
-  function confirmTerminate() {
+  function confirmOffBoard() {
     if (!loaded || loaded.matched.length === 0) return;
-    setStatusFor(loaded.matched.map((a) => a.id), "Terminated");
+    setStatusFor(loaded.matched.map((a) => a.id), "Off Board");
     onClose();
   }
 
-  const toTerminate = loaded?.matched.filter((a) => statusOf(a) !== "Terminated") ?? [];
+  const toOffBoard = loaded?.matched.filter((a) => statusOf(a) !== "Off Board") ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Terminate Performers</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Paste one or more SSOs (separated by space, comma, or new line).</p>
+            <h2 className="font-semibold text-gray-900">Off Board Performers</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Paste one or more SSOs (space, comma, or new line separated) then confirm.</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
         </div>
@@ -2157,14 +2398,14 @@ function TerminationDialog({ onClose }: { onClose: () => void }) {
             <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
               <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
               <button onClick={loadList} disabled={!raw.trim()}
-                className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Load List</button>
+                className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium hover:bg-brand-600 disabled:opacity-40 transition-colors">Next</button>
             </div>
           </>
         ) : (
           <>
             <div className="px-5 sm:px-6 py-4 sm:py-5 space-y-3 overflow-y-auto">
               {loaded.matched.length === 0 ? (
-                <p className="text-sm text-gray-300 py-6 text-center">No performers matched the SSOs you entered.</p>
+                <p className="text-sm text-gray-300 py-6 text-center">No performers matched the SSOs entered.</p>
               ) : (
                 <div className="overflow-auto rounded-xl border border-gray-100">
                   <table className="w-full text-xs">
@@ -2172,8 +2413,8 @@ function TerminationDialog({ onClose }: { onClose: () => void }) {
                       <tr>
                         <th className="text-left px-3 py-2">SSO</th>
                         <th className="text-left px-3 py-2">Name</th>
-                        <th className="text-left px-3 py-2">Home Show</th>
-                        <th className="text-left px-3 py-2">Home Role</th>
+                        <th className="text-left px-3 py-2">Nationality</th>
+                        <th className="text-left px-3 py-2">Gender</th>
                         <th className="text-left px-3 py-2">Status</th>
                       </tr>
                     </thead>
@@ -2182,8 +2423,8 @@ function TerminationDialog({ onClose }: { onClose: () => void }) {
                         <tr key={a.id}>
                           <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{a.ssoId}</td>
                           <td className="px-3 py-2 text-gray-800 whitespace-nowrap">{a.name}</td>
-                          <td className="px-3 py-2 text-gray-600">{a.homeShow ?? "—"}</td>
-                          <td className="px-3 py-2 text-gray-600">{a.homeRole ?? "—"}</td>
+                          <td className="px-3 py-2 text-gray-600">{a.flag} {a.nationality}</td>
+                          <td className="px-3 py-2 text-gray-600">{a.gender === "men" ? "Male" : a.gender === "women" ? "Female" : "—"}</td>
                           <td className="px-3 py-2"><StatusBadge status={statusOf(a)} size="xs" /></td>
                         </tr>
                       ))}
@@ -2199,9 +2440,9 @@ function TerminationDialog({ onClose }: { onClose: () => void }) {
             </div>
             <div className="flex justify-between gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
               <button onClick={() => setLoaded(null)} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Back</button>
-              <button onClick={confirmTerminate} disabled={toTerminate.length === 0}
+              <button onClick={confirmOffBoard} disabled={toOffBoard.length === 0}
                 className="px-5 py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 disabled:opacity-40 transition-colors">
-                Terminate {toTerminate.length > 0 ? toTerminate.length : ""}
+                Confirm Off Board {toOffBoard.length > 0 ? `(${toOffBoard.length})` : ""}
               </button>
             </div>
           </>
@@ -2321,19 +2562,12 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
 
 // ── Performer Card ─────────────────────────────────────────────────────────
 
-function PerformerCard({ actor, index, type, onOpen }: {
-  actor: Actor; index: number; type: "home" | "swing"; onOpen: (id: number) => void;
+function PerformerCard({ actor, onOpen }: {
+  actor: Actor; onOpen: (id: number) => void;
 }) {
-  const { statusOf } = useActorStatus();
-  const status = statusOf(actor);
   return (
     <>
       <div className="group relative bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
-        <div className="absolute top-2 left-2 z-10">
-          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${type === "home" ? "bg-brand-500 text-white" : "bg-amber-400 text-amber-900"}`}>
-            {type === "home" ? `H${index + 1}` : `S${index + 1}`}
-          </span>
-        </div>
         <div className="relative w-full cursor-pointer" style={{ paddingBottom: "133%" }} onClick={() => onOpen(actor.id)}>
           <img src={actor.photoUrl} alt={actor.name} className="absolute inset-0 w-full h-full object-cover object-top" loading="lazy" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -2341,9 +2575,6 @@ function PerformerCard({ actor, index, type, onOpen }: {
               <Eye className="w-3.5 h-3.5 text-gray-700" />
             </div>
           </div>
-          <span className="absolute bottom-1.5 left-1.5 z-10">
-            <StatusBadge status={status} />
-          </span>
         </div>
         <div className="px-2 py-2">
           <p className="text-xs font-bold text-gray-900 leading-snug truncate">{actor.name}</p>
@@ -2374,10 +2605,17 @@ function PerformerCard({ actor, index, type, onOpen }: {
 
 // ── Data Ops Menu ─────────────────────────────────────────────────────────
 
-function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso }: {
+function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportSwing, onImportHeadshot }: {
   onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
+  onImportEvent: () => void; onImportSwing: () => void; onImportHeadshot: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const item = (label: string, icon: React.ReactNode, fn: () => void) => (
+    <button onClick={() => { setOpen(false); fn(); }}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 text-sm">
+      {icon}{label}
+    </button>
+  );
   return (
     <div className="relative hidden md:block">
       <button onClick={() => setOpen((p) => !p)}
@@ -2387,20 +2625,14 @@ function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso }: {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-60 py-1 text-sm">
-            <button onClick={() => { setOpen(false); onImportPerformers(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Upload className="w-3.5 h-3.5 text-gray-400" />Import Performers
-            </button>
-            <button onClick={() => { setOpen(false); onUpdateBasic(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Upload className="w-3.5 h-3.5 text-gray-400" />Update Basic Info
-            </button>
+          <div className="absolute right-0 top-10 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-64 py-1">
+            {item("Import Performers", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportPerformers)}
+            {item("Update Basic Info", <Upload className="w-3.5 h-3.5 text-gray-400" />, onUpdateBasic)}
+            {item("Import Event Experience", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportEvent)}
+            {item("Import Swing Role", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportSwing)}
+            {item("Import Headshots", <Camera className="w-3.5 h-3.5 text-gray-400" />, onImportHeadshot)}
             <div className="my-1 border-t border-gray-100" />
-            <button onClick={() => { setOpen(false); onReplaceSso(); }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-              <Pencil className="w-3.5 h-3.5 text-gray-400" />Replace SSO
-            </button>
+            {item("Replace SSO", <Pencil className="w-3.5 h-3.5 text-gray-400" />, onReplaceSso)}
           </div>
         </>
       )}
@@ -2411,7 +2643,7 @@ function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso }: {
 // ── Card View ──────────────────────────────────────────────────────────────
 
 function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPerformers, onTerminate, showUnassigned, onOpenActor,
-  onImportPerformers, onUpdateBasic, onReplaceSso,
+  onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportSwing, onImportHeadshot,
 }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
@@ -2420,6 +2652,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
   showUnassigned: boolean;
   onOpenActor: (id: number) => void;
   onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
+  onImportEvent: () => void; onImportSwing: () => void; onImportHeadshot: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
@@ -2455,9 +2688,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />离职
+                <UserX className="w-4 h-4" />Off Board
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
           {showFilter && (
@@ -2485,8 +2718,8 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
             <p className="text-sm text-gray-300 py-8 text-center">{unassignedAll.length === 0 ? "All performers are assigned" : "No performers match the filters"}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {pageItems.map((a, i) => (
-                <PerformerCard key={a.id} actor={a} index={i} type="home" onOpen={onOpenActor} />
+              {pageItems.map((a) => (
+                <PerformerCard key={a.id} actor={a} onOpen={onOpenActor} />
               ))}
             </div>
           )}
@@ -2520,9 +2753,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />离职
+                <UserX className="w-4 h-4" />Off Board
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
           {showFilter && (
@@ -2550,8 +2783,8 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
             <p className="text-sm text-gray-300 py-8 text-center">No performers match the filters</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {allPageItems.map((a, i) => (
-                <PerformerCard key={a.id} actor={a} index={(allSafeP - 1) * pageSize + i} type="home" onOpen={onOpenActor} />
+              {allPageItems.map((a) => (
+                <PerformerCard key={a.id} actor={a} onOpen={onOpenActor} />
               ))}
             </div>
           )}
@@ -2582,7 +2815,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
           {/* Breadcrumb */}
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="text-sm sm:text-base min-w-0">
-              <span className="text-gray-500">Regular Show</span>
+              <span className="text-gray-500">{selectedShow.performanceType}</span>
               <span className="text-gray-300 mx-2">/</span>
               <span className="text-gray-500">{selectedShow.name}</span>
               <span className="text-gray-300 mx-2">/</span>
@@ -2600,9 +2833,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />离职
+                <UserX className="w-4 h-4" />Off Board
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
 
@@ -2651,7 +2884,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {pageItems.map((item) =>
-                <PerformerCard key={item.actor.id} actor={item.actor} index={item.index} type={castTab}
+                <PerformerCard key={item.actor.id} actor={item.actor}
                   onOpen={onOpenActor} />
               )}
             </div>
@@ -2667,131 +2900,137 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
 }
 
 // ── Left Sidebar ───────────────────────────────────────────────────────────
+// Tree: All Performers → Performance Type → Show → Performer Category → Role
 
 function LeftSidebar({
-  selectedShowId, selectedRoleId, showUnassigned,
-  onSelectUnassigned, onSelectRole, onSelectAll,
+  selectedShowId, selectedRoleId,
+  onSelectRole, onSelectAll,
   isMobileOpen, onClose,
 }: {
-  selectedShowId: string | null; selectedRoleId: string | null; showUnassigned: boolean;
-  onSelectUnassigned: () => void;
+  selectedShowId: string | null; selectedRoleId: string | null;
   onSelectRole: (showId: string, roleId: string) => void;
   onSelectAll: () => void;
   isMobileOpen: boolean;
   onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [expandedShowIds, setExpandedShowIds] = useState<Set<string>>(
-    () => new Set(selectedShowId ? [selectedShowId] : []),
-  );
-  const [regularExpanded, setRegularExpanded] = useState(true);
-  const [specialExpanded, setSpecialExpanded] = useState(false);
-
-  const unassignedCount = PERFORMERS.filter((p) => !p.homeShow).length;
-  const allShows = DATA.flatMap((l) => l.shows);
-  const regularShowTotal = allShows.reduce((sum, s) => sum + s.roles.reduce((rs, r) => rs + r.homeActors.length, 0), 0);
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(() => new Set(PERFORMANCE_TYPES));
+  const [expandedShows, setExpandedShows] = useState<Set<string>>(() => new Set(selectedShowId ? [selectedShowId] : []));
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const matchesSearch = (text: string) => !search || text.toLowerCase().includes(search.toLowerCase());
+  const toggle = (set: Set<string>, setFn: (fn: (p: Set<string>) => Set<string>) => void, key: string) =>
+    setFn((p) => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
-  function toggleExpand(showId: string) {
-    setExpandedShowIds((p) => {
-      const n = new Set(p);
-      if (n.has(showId)) n.delete(showId); else n.add(showId);
-      return n;
-    });
-  }
+  const totalCount = DATA.reduce((s, show) => s + show.roles.reduce((rs, r) => rs + r.homeActors.length, 0), 0);
+
+  const typeCount = (type: string) => DATA.filter((s) => s.performanceType === type)
+    .reduce((s, show) => s + show.roles.reduce((rs, r) => rs + r.homeActors.length, 0), 0);
+
+  const showCount = (show: Show) => show.roles.reduce((s, r) => s + r.homeActors.length, 0);
+
+  const categoryCount = (show: Show, cat: string) =>
+    show.roles.filter((r) => r.performerCategory === cat).reduce((s, r) => s + r.homeActors.length, 0);
+
+  const categoriesInShow = (show: Show) => [...new Set(show.roles.map((r) => r.performerCategory))];
 
   return (
     <aside
       className={`bg-white border-r border-gray-200 flex flex-col flex-shrink-0 fixed inset-y-0 left-0 z-40 w-72 transform transition-transform duration-200 ease-out md:static md:translate-x-0 md:w-64 md:transform-none md:transition-none ${isMobileOpen ? "translate-x-0 shadow-xl" : "-translate-x-full"}`}
     >
-      {/* Mobile drawer header (close button) */}
       <div className="md:hidden flex items-center justify-between px-3 h-12 border-b border-gray-100">
         <span className="text-sm font-semibold text-gray-700">Navigation</span>
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={onClose}
-          className="p-2 -mr-2 rounded-md text-gray-500 hover:bg-gray-100"
-        >
+        <button type="button" aria-label="Close navigation" onClick={onClose}
+          className="p-2 -mr-2 rounded-md text-gray-500 hover:bg-gray-100">
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* Search */}
       <div className="px-3 py-2 border-b border-gray-100">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Show or role name"
           className="w-full h-8 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 placeholder:text-gray-300" />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
-        {/* All Performers */}
+        {/* Level 0: All Performers */}
         <button onClick={onSelectAll}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors mb-1 ${!showUnassigned && !selectedShowId ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors mb-1 ${!selectedShowId ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
           <span>All Performers</span>
-          <span className={`text-xs ${!showUnassigned && !selectedShowId ? "text-brand-600" : "text-gray-400"}`}>({ALL_ACTORS_BY_SSO.length})</span>
+          <span className={`text-xs ${!selectedShowId ? "text-brand-600" : "text-gray-400"}`}>({totalCount})</span>
         </button>
 
-        {/* Regular Show group */}
-        <div>
-          <button onClick={() => setRegularExpanded((p) => !p)}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-brand-700 font-bold hover:bg-gray-50 transition-colors">
-            <span>Regular Show <span className="text-gray-500 font-normal text-xs">({regularShowTotal})</span></span>
-            {regularExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-          </button>
-          {regularExpanded && allShows.map((show) => {
-            const showCount = show.roles.reduce((s, r) => s + r.homeActors.length, 0);
-            const expanded = expandedShowIds.has(show.id);
-            const showMatches = matchesSearch(show.name);
-            const matchingRoles = show.roles.filter((r) => showMatches || matchesSearch(r.name));
-            if (search && !showMatches && matchingRoles.length === 0) return null;
-            const hasSelectedRole = show.id === selectedShowId && !showUnassigned && selectedRoleId !== null;
-            return (
-              <div key={show.id}>
-                <button onClick={() => toggleExpand(show.id)}
-                  className={`w-full flex items-center justify-between pl-6 pr-3 py-1.5 rounded-lg text-left transition-colors ${hasSelectedRole ? "text-brand-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
-                  <span className="flex items-center gap-1.5">
-                    <span>{show.name}</span>
-                    <span className={`text-xs ${hasSelectedRole ? "text-brand-500" : "text-gray-400"}`}>({showCount})</span>
-                  </span>
-                  {show.roles.length > 0 && (expanded
-                    ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
-                    : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />)}
-                </button>
-                {expanded && matchingRoles.map((role) => {
-                  const isRoleSelected = role.id === selectedRoleId && !showUnassigned;
-                  return (
-                    <button key={role.id} onClick={() => onSelectRole(show.id, role.id)}
-                      className={`w-full flex items-center justify-between pl-12 pr-3 py-1.5 rounded-lg text-left text-xs transition-colors ${isRoleSelected ? "bg-brand-100 text-brand-700 font-semibold" : "text-gray-600 hover:bg-gray-50"}`}>
-                      <span>{role.name}</span>
-                      <span className={`${isRoleSelected ? "text-brand-500" : "text-gray-400"}`}>({role.homeActors.length})</span>
+        {/* Level 1: Performance Type */}
+        {PERFORMANCE_TYPES.map((type) => {
+          const typeShows = DATA.filter((s) => s.performanceType === type);
+          if (typeShows.length === 0) return null;
+          const typeTotal = typeCount(type);
+          const typeExpanded = expandedTypes.has(type);
+          const typeKey = `type:${type}`;
+          if (search && !typeShows.some((s) => matchesSearch(s.name) || s.roles.some((r) => matchesSearch(r.name) || matchesSearch(r.performerCategory)))) return null;
+          return (
+            <div key={type}>
+              <button onClick={() => toggle(expandedTypes, setExpandedTypes, type)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-brand-700 font-semibold hover:bg-gray-50 transition-colors text-xs uppercase tracking-wide">
+                <span>{type} <span className="text-gray-500 font-normal normal-case">({typeTotal})</span></span>
+                {typeExpanded ? <ChevronUp className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />}
+              </button>
+
+              {/* Level 2: Show */}
+              {typeExpanded && typeShows.map((show) => {
+                const sCount = showCount(show);
+                const showExpanded = expandedShows.has(show.id);
+                const showMatches = matchesSearch(show.name);
+                const hasSelectedRole = show.id === selectedShowId && selectedRoleId !== null;
+                if (search && !showMatches && !show.roles.some((r) => matchesSearch(r.name) || matchesSearch(r.performerCategory))) return null;
+                return (
+                  <div key={show.id}>
+                    <button onClick={() => toggle(expandedShows, setExpandedShows, show.id)}
+                      className={`w-full flex items-center justify-between pl-5 pr-3 py-1.5 rounded-lg text-left transition-colors ${hasSelectedRole ? "text-brand-700 font-medium" : "text-gray-700 hover:bg-gray-50"}`}>
+                      <span className="flex items-center gap-1">
+                        <span>{show.name}</span>
+                        <span className={`text-xs ${hasSelectedRole ? "text-brand-500" : "text-gray-400"}`}>({sCount})</span>
+                      </span>
+                      {showExpanded ? <ChevronUp className="w-3 h-3 text-gray-400 flex-shrink-0" /> : <ChevronDown className="w-3 h-3 text-gray-400 flex-shrink-0" />}
                     </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Special Event */}
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <button onClick={() => setSpecialExpanded((p) => !p)}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-gray-700 font-bold hover:bg-gray-50 transition-colors">
-            <span>Special Event</span>
-            {specialExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-          </button>
-          {specialExpanded && (
-            <p className="px-6 py-2 text-xs text-gray-300">No special events</p>
-          )}
-        </div>
+                    {/* Level 3: Performer Category */}
+                    {showExpanded && categoriesInShow(show).map((cat) => {
+                      const catKey = `${show.id}:${cat}`;
+                      const catCount = categoryCount(show, cat);
+                      const catExpanded = expandedCategories.has(catKey);
+                      const catRoles = show.roles.filter((r) => r.performerCategory === cat);
+                      if (search && !matchesSearch(cat) && !catRoles.some((r) => matchesSearch(r.name))) return null;
+                      return (
+                        <div key={cat}>
+                          <button onClick={() => toggle(expandedCategories, setExpandedCategories, catKey)}
+                            className="w-full flex items-center justify-between pl-9 pr-3 py-1.5 rounded-lg text-left text-gray-600 hover:bg-gray-50 transition-colors text-xs font-medium">
+                            <span className="flex items-center gap-1">
+                              <span>{cat}</span>
+                              <span className="text-gray-400">({catCount})</span>
+                            </span>
+                            {catExpanded ? <ChevronUp className="w-3 h-3 text-gray-400 flex-shrink-0" /> : <ChevronDown className="w-3 h-3 text-gray-400 flex-shrink-0" />}
+                          </button>
 
-        {/* Unassigned (always at the bottom) */}
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <button onClick={onSelectUnassigned}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors ${showUnassigned ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
-            <span>Unassigned</span>
-            <span className={`text-xs ${showUnassigned ? "text-brand-600" : "text-gray-400"}`}>({unassignedCount})</span>
-          </button>
-        </div>
+                          {/* Level 4: Role */}
+                          {catExpanded && catRoles.map((role) => {
+                            if (search && !matchesSearch(role.name)) return null;
+                            const isSelected = role.id === selectedRoleId && show.id === selectedShowId;
+                            return (
+                              <button key={role.id} onClick={() => onSelectRole(show.id, role.id)}
+                                className={`w-full flex items-center justify-between pl-12 pr-3 py-1.5 rounded-lg text-left text-xs transition-colors ${isSelected ? "bg-brand-100 text-brand-700 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}>
+                                <span>{role.name}</span>
+                                <span className={isSelected ? "text-brand-500" : "text-gray-400"}>({role.homeActors.length})</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );
@@ -2811,9 +3050,9 @@ export default function CastingBookPage() {
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [castTab, setCastTab] = useState<"home" | "swing">("home");
   const [assignPerformersOpen, setAssignPerformersOpen] = useState(false);
-  const [terminateOpen, setTerminateOpen] = useState(false);
+  const [offBoardOpen, setOffBoardOpen] = useState(false);
   // Data Ops modals (PC-only): performer import, basic-info update, replace SSO.
-  const [importModal, setImportModal] = useState<null | "performers" | "updateBasic" | "sso">(null);
+  const [importModal, setImportModal] = useState<null | "performers" | "updateBasic" | "sso" | "event" | "swing" | "headshot">(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
 
@@ -2836,7 +3075,7 @@ export default function CastingBookPage() {
     }
   }
 
-  const allShowsFlat = useMemo(() => DATA.flatMap((l) => l.shows), []);
+  const allShowsFlat = useMemo(() => DATA, []);
   const selectedShow = useMemo(() => allShowsFlat.find((s) => s.id === selectedShowId) ?? null, [allShowsFlat, selectedShowId]);
   const selectedRole = useMemo(() => selectedRoleId ? selectedShow?.roles.find((r) => r.id === selectedRoleId) ?? null : null, [selectedShow, selectedRoleId]);
 
@@ -2909,11 +3148,7 @@ export default function CastingBookPage() {
           <Menu className="w-5 h-5" />
         </button>
         <span className="text-xs text-gray-400 truncate">
-          {showUnassigned
-            ? "Unassigned"
-            : selectedRole
-              ? `${selectedShow?.name ?? ""} / ${selectedRole.name}`
-              : ""}
+          {selectedRole ? `${selectedShow?.name ?? ""} / ${selectedRole.name}` : ""}
         </span>
       </header>
       {/* Desktop header */}
@@ -2936,8 +3171,6 @@ export default function CastingBookPage() {
         <LeftSidebar
           selectedShowId={selectedShowId}
           selectedRoleId={selectedRoleId}
-          showUnassigned={showUnassigned}
-          onSelectUnassigned={() => { setShowUnassigned(true); setSelectedShowId(null); setSelectedRoleId(null); closeSidebarOnMobile(); }}
           onSelectRole={(showId, roleId) => { selectRole(showId, roleId); closeSidebarOnMobile(); }}
           onSelectAll={() => { setShowUnassigned(false); setSelectedShowId(null); setSelectedRoleId(null); closeSidebarOnMobile(); }}
           isMobileOpen={sidebarOpen}
@@ -2947,12 +3180,15 @@ export default function CastingBookPage() {
             <CardView selectedShow={selectedShow} selectedRole={selectedRole}
               castTab={castTab} setCastTab={setCastTab}
               onAssignPerformers={() => setAssignPerformersOpen(true)}
-              onTerminate={() => setTerminateOpen(true)}
-              showUnassigned={showUnassigned}
+              onTerminate={() => setOffBoardOpen(true)}
+              showUnassigned={false}
               onOpenActor={openActor}
               onImportPerformers={() => setImportModal("performers")}
               onUpdateBasic={() => setImportModal("updateBasic")}
               onReplaceSso={() => setImportModal("sso")}
+              onImportEvent={() => setImportModal("event")}
+              onImportSwing={() => setImportModal("swing")}
+              onImportHeadshot={() => setImportModal("headshot")}
             />
         </div>
       </div>
@@ -2976,10 +3212,13 @@ export default function CastingBookPage() {
           onSubmit={() => setAssignPerformersOpen(false)}
         />
       )}
-      {terminateOpen && <TerminationDialog onClose={() => setTerminateOpen(false)} />}
+      {offBoardOpen && <OffBoardDialog onClose={() => setOffBoardOpen(false)} />}
       {importModal === "performers" && <RosterImportModal onClose={() => setImportModal(null)} />}
       {importModal === "updateBasic" && <UpdateBasicInfoModal onClose={() => setImportModal(null)} />}
       {importModal === "sso" && <SsoReplacementModal onClose={() => setImportModal(null)} />}
+      {importModal === "event" && <ImportEventExperienceModal onClose={() => setImportModal(null)} />}
+      {importModal === "swing" && <ImportSwingRoleModal onClose={() => setImportModal(null)} />}
+      {importModal === "headshot" && <ImportHeadshotModal onClose={() => setImportModal(null)} />}
     </div>
     </StatusCtx.Provider>
   );
