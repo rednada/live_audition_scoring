@@ -5,7 +5,7 @@ import { useState, useMemo, useRef, useCallback, createContext, useContext } fro
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen, X, Pencil, Upload, Play, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, Trash2,
+  Trash2,
   RotateCcw, Eye, Users, UserX, Plus,
   ChevronLeft, ChevronRight, Camera, Download, FileSpreadsheet,
   Filter, Check, Menu, ArrowLeft,
@@ -16,7 +16,7 @@ import useDocumentTitle from "@/lib/useDocumentTitle";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface MediaFile { type: "photo" | "video"; url: string; duration?: string; note?: string; photographer?: string; showRole?: string }
+interface MediaFile { type: "photo" | "video"; url: string; duration?: string; note?: string; photographer?: string; show?: string; role?: string }
 interface SkillEntry { id: string; type: string; skill: string }
 interface ShowRoleRecord {
   id: string; show: string; role: string; roleType: "home" | "swing";
@@ -433,38 +433,119 @@ function Paginator({ page, totalPages, pageSize, pageSizeOptions, totalItems, on
 function Lightbox({ files, initialIndex, onClose }: { files: MediaFile[]; initialIndex: number; onClose: () => void }) {
   const [idx, setIdx] = useState(initialIndex);
   const file = files[idx];
+  const hasInfo = file.show || file.role || file.photographer || file.note;
   return (
-    <div className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center" onClick={onClose}>
-      <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.max(0, i - 1)); }} disabled={idx === 0}
-        className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
-        <ArrowUp className="w-5 h-5 -rotate-90" />
-      </button>
-      <div className="relative flex items-center justify-center px-4 sm:px-16" onClick={(e) => e.stopPropagation()}>
-        {file.type === "video" ? (
-          <div className="relative">
-            <img src={file.url} alt="" className="max-h-[92vh] max-w-[92vw] object-contain rounded-lg" />
-            <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center">
-              <div className="w-16 h-16 bg-white/30 rounded-full flex items-center justify-center">
-                <Play className="w-8 h-8 text-white fill-white ml-1" />
-              </div>
-            </div>
-            {file.duration && <span className="absolute bottom-3 left-3 text-xs text-white bg-black/60 px-1.5 py-0.5 rounded">{file.duration}</span>}
-          </div>
-        ) : (
-          <img src={file.url} alt="" className="max-h-[92vh] max-w-[92vw] object-contain rounded-lg" />
-        )}
-        {file.note && (
-          <p className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[90%] text-xs text-white/90 text-center px-3 py-1 bg-black/50 rounded-full">{file.note}</p>
-        )}
-      </div>
-      <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.min(files.length - 1, i + 1)); }} disabled={idx === files.length - 1}
-        className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
-        <ArrowDown className="w-5 h-5 -rotate-90" />
-      </button>
-      <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors">
+    <div className="fixed inset-0 z-[80] bg-black flex flex-col" onClick={onClose}>
+      {/* Close */}
+      <button onClick={(e) => { e.stopPropagation(); onClose(); }}
+        className="absolute top-4 right-4 z-10 w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors">
         <X className="w-5 h-5" />
       </button>
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-gray-400">{idx + 1} / {files.length}</div>
+      {/* Image area */}
+      <div className="flex-1 relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.max(0, i - 1)); }} disabled={idx === 0}
+          className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        {file.type === "video" ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="relative w-full h-full">
+              <img src={file.url} alt="" className="w-full h-full object-contain" />
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div className="w-16 h-16 bg-white/30 rounded-full flex items-center justify-center">
+                  <Play className="w-8 h-8 text-white fill-white ml-1" />
+                </div>
+              </div>
+              {file.duration && <span className="absolute bottom-3 left-3 text-xs text-white bg-black/60 px-1.5 py-0.5 rounded">{file.duration}</span>}
+            </div>
+          </div>
+        ) : (
+          <img src={file.url} alt="" className="w-full h-full object-contain" />
+        )}
+        <button onClick={(e) => { e.stopPropagation(); setIdx((i) => Math.min(files.length - 1, i + 1)); }} disabled={idx === files.length - 1}
+          className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white disabled:opacity-30 transition-colors">
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+      {/* Bottom info bar */}
+      <div className="flex-shrink-0 bg-black/85 px-5 py-3" onClick={(e) => e.stopPropagation()}>
+        {hasInfo && (
+          <div className="space-y-1 mb-2">
+            {(file.show || file.role) && (
+              <p className="text-sm font-semibold text-white">{[file.show, file.role].filter(Boolean).join(" / ")}</p>
+            )}
+            {file.photographer && <p className="text-xs text-gray-300">📷 {file.photographer}</p>}
+            {file.note && <p className="text-xs text-gray-400">{file.note}</p>}
+          </div>
+        )}
+        <p className="text-xs text-gray-500 text-center">{idx + 1} / {files.length}</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Photo Meta Edit Modal ─────────────────────────────────────────────────
+
+function PhotoMetaEditModal({ file, onSave, onClose }: {
+  file: MediaFile;
+  onSave: (updates: Pick<MediaFile, "show" | "role" | "photographer" | "note">) => void;
+  onClose: () => void;
+}) {
+  const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300 bg-white";
+  const labelCls = "block text-xs text-gray-400 mb-1";
+  const [form, setForm] = useState({
+    show: file.show ?? "",
+    role: file.role ?? "",
+    photographer: file.photographer ?? "",
+    note: file.note ?? "",
+  });
+  const showRoles = ALL_SHOWS.find((s) => s.name === form.show)?.roles ?? [];
+  return (
+    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900">Edit Photo Info</h3>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="w-full h-28 rounded-xl overflow-hidden bg-gray-100">
+            <img src={file.url} alt="" className="w-full h-full object-cover object-top" />
+          </div>
+          <div>
+            <label className={labelCls}>Show (optional)</label>
+            <select value={form.show} onChange={(e) => setForm((f) => ({ ...f, show: e.target.value, role: "" }))} className={inputCls}>
+              <option value="">Select show</option>
+              {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Role (optional)</label>
+            <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              disabled={!form.show} className={inputCls + " disabled:opacity-50"}>
+              <option value="">Select role</option>
+              {showRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Photographer (optional)</label>
+            <input value={form.photographer} onChange={(e) => setForm((f) => ({ ...f, photographer: e.target.value }))}
+              className={inputCls} placeholder="Photographer name" />
+          </div>
+          <div>
+            <label className={labelCls}>Note (optional)</label>
+            <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+              className={inputCls} placeholder="e.g. Front pose, stage lighting" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 pb-5">
+          <button onClick={onClose}
+            className="px-4 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={() => { onSave(form); onClose(); }}
+            className="flex items-center gap-1 px-4 py-2 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors">
+            <Check className="w-3 h-3" />Save
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1009,10 +1090,12 @@ function ActorDetailDrawer({
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(actor.mediaFiles ?? []);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [addingMedia, setAddingMedia] = useState(false);
-  const [mediaForm, setMediaForm] = useState<{ note: string; photographer: string; showRole: string; file: File | null; url: string; type: "photo" | "video" }>({
-    note: "", photographer: "", showRole: "", file: null, url: "", type: "photo",
+  const [editingMediaIdx, setEditingMediaIdx] = useState<number | null>(null);
+  const [mediaForm, setMediaForm] = useState<{ note: string; photographer: string; show: string; role: string; file: File | null; url: string; type: "photo" | "video" }>({
+    note: "", photographer: "", show: "", role: "", file: null, url: "", type: "photo",
   });
   const portfolioInputRef = useRef<HTMLInputElement>(null);
+  const mediaAddFormRoles = ALL_SHOWS.find((s) => s.name === mediaForm.show)?.roles ?? [];
 
   function handlePortfolioPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -1040,8 +1123,8 @@ function ActorDetailDrawer({
       setAddingMedia(false);
       return;
     }
-    setMediaFiles((p) => [...p, { type: mediaForm.type, url: mediaForm.url, note: mediaForm.note, photographer: mediaForm.photographer, showRole: mediaForm.showRole }]);
-    setMediaForm({ note: "", photographer: "", showRole: "", file: null, url: "", type: "photo" });
+    setMediaFiles((p) => [...p, { type: mediaForm.type, url: mediaForm.url, note: mediaForm.note, photographer: mediaForm.photographer, show: mediaForm.show, role: mediaForm.role }]);
+    setMediaForm({ note: "", photographer: "", show: "", role: "", file: null, url: "", type: "photo" });
     setAddingMedia(false);
   }
 
@@ -1157,6 +1240,13 @@ function ActorDetailDrawer({
     <>
       {lightboxIdx !== null && (
         <Lightbox files={mediaFiles} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
+      )}
+      {editingMediaIdx !== null && (
+        <PhotoMetaEditModal
+          file={mediaFiles[editingMediaIdx]}
+          onSave={(updates) => setMediaFiles((p) => p.map((f, i) => i === editingMediaIdx ? { ...f, ...updates } : f))}
+          onClose={() => setEditingMediaIdx(null)}
+        />
       )}
       {confirm && (
         <ConfirmDialog
@@ -1555,7 +1645,7 @@ function ActorDetailDrawer({
               editing={addingMedia} collapsed={collapsed.attachment}
               onToggleCollapse={() => toggle("attachment")}
               onAdd={() => setAddingMedia(true)} addLabel="Add"
-              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", photographer: "", showRole: "", file: null, url: "", type: "photo" }); }}
+              onCancel={() => { setAddingMedia(false); setMediaForm({ note: "", photographer: "", show: "", role: "", file: null, url: "", type: "photo" }); }}
               onSave={saveMedia}
             />
             {!collapsed.attachment && (
@@ -1584,13 +1674,19 @@ function ActorDetailDrawer({
                         className={inputCls} placeholder="Photographer name" />
                     </div>
                     <div>
-                      <label className={labelCls}>Show &amp; Role (optional)</label>
-                      <select value={mediaForm.showRole ?? ""} onChange={(e) => setMediaForm((p) => ({ ...p, showRole: e.target.value }))}
+                      <label className={labelCls}>Show (optional)</label>
+                      <select value={mediaForm.show ?? ""} onChange={(e) => setMediaForm((p) => ({ ...p, show: e.target.value, role: "" }))}
                         className={inputCls + " bg-white"}>
-                        <option value="">Select</option>
-                        {SHOW_ROLE_PAIRS.map((p) => (
-                          <option key={`${p.show}/${p.role}`} value={`${p.show}/${p.role}`}>{p.show} / {p.role}</option>
-                        ))}
+                        <option value="">Select show</option>
+                        {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Role (optional)</label>
+                      <select value={mediaForm.role ?? ""} onChange={(e) => setMediaForm((p) => ({ ...p, role: e.target.value }))}
+                        disabled={!mediaForm.show} className={inputCls + " bg-white disabled:opacity-50"}>
+                        <option value="">Select role</option>
+                        {mediaAddFormRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
                     </div>
                     <div>
@@ -1623,6 +1719,10 @@ function ActorDetailDrawer({
                             <Eye className="w-5 h-5 text-white drop-shadow" />
                           </button>
                           <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                            <button onClick={(e) => { e.stopPropagation(); setEditingMediaIdx(i); }}
+                              className="w-5 h-5 bg-brand-500 hover:bg-brand-600 rounded-full flex items-center justify-center text-white">
+                              <Pencil className="w-3 h-3" />
+                            </button>
                             <a href={f.url} download={`photo_${i + 1}.jpg`}
                               className="w-5 h-5 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center text-white"
                               onClick={(e) => e.stopPropagation()}>
@@ -1635,9 +1735,9 @@ function ActorDetailDrawer({
                             </button>
                           </div>
                         </div>
-                        {(f.note || f.photographer || f.showRole) && (
+                        {(f.note || f.photographer || f.show || f.role) && (
                           <div className="mt-1 space-y-0.5">
-                            {f.showRole && <p className="text-[10px] text-brand-600 font-medium">{f.showRole}</p>}
+                            {(f.show || f.role) && <p className="text-[10px] text-brand-600 font-medium">{[f.show, f.role].filter(Boolean).join(" / ")}</p>}
                             {f.photographer && <p className="text-[10px] text-gray-400">📷 {f.photographer}</p>}
                             {f.note && <p className="text-[10px] text-gray-400 line-clamp-1">{f.note}</p>}
                           </div>
@@ -1669,6 +1769,14 @@ function ActorDetailDrawer({
                         className="absolute top-1 right-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white"
                       >
                         <X className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setEditingMediaIdx(i); }}
+                        aria-label="Edit photo info"
+                        className="absolute bottom-1 left-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white"
+                      >
+                        <Pencil className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
