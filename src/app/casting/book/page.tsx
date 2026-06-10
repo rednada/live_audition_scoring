@@ -24,11 +24,11 @@ interface ShowRoleRecord {
 }
 interface EventRecord { id: string; eventName: string; roleName: string; startDate: string; endDate: string; status: "active" | "inactive" }
 
-type ActorStatus = "Employed" | "Off Board";
-const ACTOR_STATUSES: ActorStatus[] = ["Employed", "Off Board"];
+type ActorStatus = "Employed" | "Terminated";
+const ACTOR_STATUSES: ActorStatus[] = ["Employed", "Terminated"];
 const STATUS_BADGE: Record<ActorStatus, { bg: string; text: string; dot: string }> = {
-  "Employed":  { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
-  "Off Board": { bg: "bg-rose-50",    text: "text-rose-600",    dot: "bg-rose-400" },
+  "Employed":   { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  "Terminated": { bg: "bg-rose-50",    text: "text-rose-600",    dot: "bg-rose-400" },
 };
 
 // Status override state: actor objects come from module-level constants so
@@ -145,7 +145,7 @@ function dHash(n: number): number {
 
 function genActorStatus(seed: number): ActorStatus {
   const h = dHash(seed * 71) % 100;
-  return h < 88 ? "Employed" : "Off Board";
+  return h < 88 ? "Employed" : "Terminated";
 }
 
 const VOICE_RANGE_POOL = VOICE_RANGE_OPTIONS;
@@ -325,7 +325,7 @@ function genPerformer(seed: number): Actor {
   // carry a placeholder phone number and surface in the Replace SSO flow.
   const needsSso = dHash(seed * 23) % 6 === 0;
   const ssoId = needsSso
-    ? `1${String(3000000000 + (dHash(seed * 19) % 999999999))}`
+    ? String(30000001 + (dHash(seed * 19) % 9999998))
     : `2001${String(7000 + dHash(seed * 19) % 3000)}`;
   return {
     id: 9000 + seed, ssoId,
@@ -868,21 +868,20 @@ function FilterPanel({ filters, onChange, onClose }: {
 
 // ── Basic Info — mobile-only sub page ──────────────────────────────────────
 
-type BasicForm = { nationality: string; gender: "men" | "women"; height: string; weight: string; voiceRange: string; homeShow: string; homeRole: string };
+type BasicForm = { nationality: string; gender: "men" | "women"; height: string; weight: string; voiceRange: string };
 
 function BasicInfoMobile({
-  actor, headshotUrl, status, nationality, flag, homeShow, homeRole, voiceRange,
+  actor, headshotUrl, status, nationality, flag, voiceRange,
   editing, form, onForm, onEdit, onCancelEdit, onSave, onBack,
 }: {
   actor: Actor; headshotUrl: string; status: ActorStatus;
-  nationality: string; flag: string; homeShow: string; homeRole: string; voiceRange: string;
+  nationality: string; flag: string; voiceRange: string;
   editing: boolean;
   form: BasicForm;
   onForm: React.Dispatch<React.SetStateAction<BasicForm>>;
   onEdit: () => void; onCancelEdit: () => void; onSave: () => void;
   onBack: () => void;
 }) {
-  const formRoles = ALL_SHOWS.find((s) => s.name === form.homeShow)?.roles ?? [];
   const inputCls = "w-36 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white text-right focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-50";
 
   const readRow = (label: string, value: string) => (
@@ -966,30 +965,6 @@ function BasicInfoMobile({
               <span className="text-sm text-gray-800 text-right truncate">{flag} {nationality}</span>
             )}
           </li>
-          {/* Home Show */}
-          <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Home Show</span>
-            {editing ? (
-              <select value={form.homeShow} onChange={(e) => onForm((f) => ({ ...f, homeShow: e.target.value, homeRole: "" }))} className={inputCls}>
-                <option value="">Select show</option>
-                {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-            ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{homeShow || "—"}</span>
-            )}
-          </li>
-          {/* Home Role */}
-          <li className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="text-xs text-gray-400 flex-shrink-0">Home Role</span>
-            {editing ? (
-              <select value={form.homeRole} onChange={(e) => onForm((f) => ({ ...f, homeRole: e.target.value }))} disabled={!form.homeShow} className={inputCls}>
-                <option value="">Select role</option>
-                {formRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-              </select>
-            ) : (
-              <span className="text-sm text-gray-800 text-right truncate">{homeRole || "—"}</span>
-            )}
-          </li>
         </ul>
       </div>
     </div>
@@ -1033,13 +1008,10 @@ function ActorDetailDrawer({
     height: String(actor.height),
     weight: String(actor.weight),
     voiceRange: actor.voiceRange ?? "",
-    homeShow: actor.homeShow ?? "",
-    homeRole: actor.homeRole ?? "",
   });
   const [voiceRange, setVoiceRange] = useState(actor.voiceRange ?? "");
-  const basicFormRoles = ALL_SHOWS.find((s) => s.name === basicForm.homeShow)?.roles ?? [];
   function startEditBasic() {
-    setBasicForm({ nationality, gender: actor.gender ?? "men", height: String(actor.height), weight: String(actor.weight), voiceRange, homeShow, homeRole });
+    setBasicForm({ nationality, gender: actor.gender ?? "men", height: String(actor.height), weight: String(actor.weight), voiceRange });
     setEditingBasic(true);
   }
 
@@ -1148,12 +1120,33 @@ function ActorDetailDrawer({
 
   function saveShowRole() {
     if (!showRoleForm.show || !showRoleForm.role) { setAddingShowRole(false); return; }
-    setShowRoleRecords((p) => [...p, {
-      id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role,
-      roleType: showRoleForm.roleType, date: showRoleForm.date || today, status: "active",
-    }]);
-    setShowRoleForm({ show: "", role: "", roleType: "home", date: today });
-    setAddingShowRole(false);
+    const isHome = showRoleForm.roleType === "home";
+    const activeHome = showRoleRecords.find((r) => r.roleType === "home" && r.status === "active");
+    const doSave = () => {
+      setShowRoleRecords((p) => {
+        const next = isHome && activeHome
+          ? p.map((r) => r.id === activeHome.id ? { ...r, status: "inactive" as const, endDate: today } : r)
+          : [...p];
+        next.unshift({
+          id: `sr-${Date.now()}`, show: showRoleForm.show, role: showRoleForm.role,
+          roleType: showRoleForm.roleType, date: showRoleForm.date || today, status: "active",
+        });
+        setHomeShow(showRoleForm.show);
+        setHomeRole(showRoleForm.role);
+        return next;
+      });
+      setShowRoleForm({ show: "", role: "", roleType: "home", date: today });
+      setAddingShowRole(false);
+    };
+    if (isHome && activeHome) {
+      askConfirm(
+        "Reassign Home Show & Role",
+        `This performer already has an active Home Show & Role (${activeHome.show} / ${activeHome.role}). Adding a new Home will set the existing record to inactive. Continue?`,
+        doSave,
+      );
+    } else {
+      doSave();
+    }
   }
 
   function cancelShowRole() {
@@ -1180,43 +1173,11 @@ function ActorDetailDrawer({
     setAddingEvent(false);
   }
 
-  // Commit a Basic Info edit. Reassigning the home show/role inactivates the
-  // existing active home record (a performer may have only one active home).
   function commitBasic() {
     const f = basicForm;
-    const homeChanged = f.homeShow !== homeShow || f.homeRole !== homeRole;
-    const apply = () => {
-      setNationality(f.nationality);
-      setVoiceRange(f.voiceRange);
-      if (homeChanged) {
-        setShowRoleRecords((prev) => {
-          const next = prev.map((r) =>
-            r.roleType === "home" && r.status === "active"
-              ? { ...r, status: "inactive" as const, endDate: today }
-              : r);
-          if (f.homeShow && f.homeRole) {
-            next.unshift({
-              id: `sr-${Date.now()}`, show: f.homeShow, role: f.homeRole,
-              roleType: "home", date: today, status: "active",
-            });
-          }
-          return next;
-        });
-        setHomeShow(f.homeShow);
-        setHomeRole(f.homeRole);
-      }
-      setEditingBasic(false);
-    };
-    const hasActiveHome = !!homeShow && showRoleRecords.some((r) => r.roleType === "home" && r.status === "active");
-    if (homeChanged && hasActiveHome) {
-      askConfirm(
-        "Reassign Home Show & Role",
-        `This performer already has an active home show & role (${homeShow} / ${homeRole}). Assigning a new one will set the existing record to inactive. Continue?`,
-        apply,
-      );
-    } else {
-      apply();
-    }
+    setNationality(f.nationality);
+    setVoiceRange(f.voiceRange);
+    setEditingBasic(false);
   }
 
   // Apply an inactivation (Show & Role / Event) with the chosen expiry date.
@@ -1269,7 +1230,7 @@ function ActorDetailDrawer({
       {section === "basic" && (
         <BasicInfoMobile
           actor={actor} headshotUrl={headshotUrl} status={currentStatus}
-          nationality={nationality} flag={flag} homeShow={homeShow} homeRole={homeRole} voiceRange={voiceRange}
+          nationality={nationality} flag={flag} voiceRange={voiceRange}
           editing={editingBasic} form={basicForm} onForm={setBasicForm}
           onEdit={startEditBasic} onCancelEdit={() => setEditingBasic(false)} onSave={commitBasic}
           onBack={() => onOpenSection(null)} />
@@ -1384,53 +1345,12 @@ function ActorDetailDrawer({
           </div>
         </div>
 
-        {/* Home Show & Role accent strip (desktop only; mobile shows it in the card header) */}
-        <div className="hidden md:flex flex-shrink-0 px-5 py-2.5 bg-brand-50 border-b border-brand-100 items-center justify-between gap-2">
-          {editingBasic ? (
-            <div className="flex-1 grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[10px] uppercase tracking-wide text-brand-600 font-semibold mb-1">Home Show</label>
-                <select value={basicForm.homeShow}
-                  onChange={(e) => setBasicForm((f) => ({ ...f, homeShow: e.target.value, homeRole: "" }))}
-                  className={inputCls + " bg-white"}>
-                  <option value="">Select show</option>
-                  {ALL_SHOWS.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] uppercase tracking-wide text-brand-600 font-semibold mb-1">Home Role</label>
-                <select value={basicForm.homeRole}
-                  onChange={(e) => setBasicForm((f) => ({ ...f, homeRole: e.target.value }))}
-                  disabled={!basicForm.homeShow}
-                  className={inputCls + " bg-white disabled:opacity-50"}>
-                  <option value="">Select role</option>
-                  {basicFormRoles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-                </select>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-[10px] uppercase tracking-wide text-brand-600 font-semibold">Home Show & Role</span>
-              <span className="text-sm font-bold text-brand-700 truncate">
-                {homeShow || "—"} <span className="text-brand-400 mx-1">&</span> {homeRole || "—"}
-              </span>
-            </div>
-          )}
-          {editingBasic ? (
-            <div className="flex items-center gap-1.5 flex-shrink-0 self-end">
-              <button onClick={() => setEditingBasic(false)}
-                className="text-xs px-2.5 py-1 border border-gray-200 bg-white rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button onClick={commitBasic}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-500 text-white rounded-lg hover:bg-brand-600">
-                <Check className="w-3 h-3" />Save
-              </button>
-            </div>
-          ) : (
-            <button onClick={startEditBasic}
-              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-100/60 flex-shrink-0">
-              <Pencil className="w-3 h-3" />Edit
-            </button>
-          )}
+        {/* Home Show & Role accent strip (desktop only; read-only — edit via Show & Role section) */}
+        <div className="hidden md:flex flex-shrink-0 px-5 py-2.5 bg-brand-50 border-b border-brand-100 items-center gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-wide text-brand-600 font-semibold flex-shrink-0">Home Show & Role</span>
+          <span className="text-sm font-bold text-brand-700 truncate">
+            {homeShow || "—"} <span className="text-brand-400 mx-1">&</span> {homeRole || "—"}
+          </span>
         </div>
 
         {/* Basic Info — desktop row: SSO / Gender / Nationality / Height / Weight / Voice Range */}
@@ -2143,6 +2063,8 @@ const PERFORMER_IMPORT_COLUMNS: ImportColumn[] = [
   { key: "Height (cm)", required: true },
   { key: "Weight (kg)", required: true },
   { key: "Voice Range", required: false },
+  { key: "Home Show", required: false },
+  { key: "Home Role", required: false },
 ];
 
 function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommit?: (rows: string[][]) => void }) {
@@ -2151,7 +2073,7 @@ function RosterImportModal({ onClose, onCommit }: { onClose: () => void; onCommi
       title="Import Performers"
       subtitle="Onboard performers in bulk (PC only)"
       columns={PERFORMER_IMPORT_COLUMNS}
-      sample={["20017233", "Arthur William Bennett", "UK", "Male", "178", "72", "Tenor"]}
+      sample={["20017233", "Arthur William Bennett", "UK", "Male", "178", "72", "Tenor", "UOP", "Dragon Dance"]}
       fileBaseName="performer_import"
       hint={<>{" "}Default status: Employed. SSO blank → auto-assigned 3-prefix ID from 30000001. If duplicate SSO exists and is not Employed, you will be prompted to confirm rehire.</>}
       validateRow={(row) => {
@@ -2172,7 +2094,7 @@ const EVENT_IMPORT_COLUMNS: ImportColumn[] = [
   { key: "SSO", required: true },
   { key: "Event Name", required: true },
   { key: "Role Name", required: true },
-  { key: "Start Date", required: true },
+  { key: "Start Date", required: false },
   { key: "End Date", required: false },
 ];
 
@@ -2189,22 +2111,29 @@ function ImportEventExperienceModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Import Swing Role ─────────────────────────────────────────────────────
-const SWING_IMPORT_COLUMNS: ImportColumn[] = [
+// ── Import Show & Role ────────────────────────────────────────────────────
+const SHOW_ROLE_IMPORT_COLUMNS: ImportColumn[] = [
   { key: "SSO", required: true },
   { key: "Show", required: true },
   { key: "Role", required: true },
-  { key: "Effective Date", required: true },
+  { key: "Type", required: true, hint: "Home or Swing" },
+  { key: "Effective Date", required: false },
 ];
 
-function ImportSwingRoleModal({ onClose }: { onClose: () => void }) {
+function ImportShowRoleModal({ onClose }: { onClose: () => void }) {
   return (
     <ExcelImportModal
-      title="Import Swing Role"
-      subtitle="Bulk import swing role assignments"
-      columns={SWING_IMPORT_COLUMNS}
-      sample={["20017233", "UCHMMG", "Frog Choir", "2025-06-01"]}
-      fileBaseName="swing_role_import"
+      title="Import Show & Role"
+      subtitle="Bulk import show & role assignments (Home or Swing)"
+      columns={SHOW_ROLE_IMPORT_COLUMNS}
+      sample={["20017233", "UCHMMG", "Frog Choir", "Home", "2025-06-01"]}
+      fileBaseName="show_role_import"
+      hint={<>{" "}Type must be <strong>Home</strong> or <strong>Swing</strong>. If importing a Home record and the performer already has an active Home, the existing one will be set to inactive.</>}
+      validateRow={(row) => {
+        const type = String(row[3] ?? "").trim();
+        if (!["Home", "Swing"].includes(type)) return "Type must be Home or Swing";
+        return null;
+      }}
       onClose={onClose}
     />
   );
@@ -2290,8 +2219,6 @@ const UPDATE_BASIC_COLUMNS: ImportColumn[] = [
   { key: "Height (cm)", required: false },
   { key: "Weight (kg)", required: false },
   { key: "Voice Range", required: false },
-  { key: "Home Show", required: false },
-  { key: "Home Role", required: false },
 ];
 
 function UpdateBasicInfoModal({ onClose }: { onClose: () => void }) {
@@ -2300,7 +2227,7 @@ function UpdateBasicInfoModal({ onClose }: { onClose: () => void }) {
       title="Update Basic Info"
       subtitle="Update existing performers' basic info in bulk (PC only)"
       columns={UPDATE_BASIC_COLUMNS}
-      sample={["20017233", "UK", "Male", "178", "72", "Tenor", "UOP", "Dragon Dance"]}
+      sample={["20017233", "UK", "Male", "178", "72", "Tenor"]}
       fileBaseName="update_basic_info"
       hint={<>{" "}Matched by SSO. Non-empty cells overwrite; blanks leave existing values unchanged.</>}
       validateRow={(row) => {
@@ -2460,7 +2387,7 @@ function SsoReplacementModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Off Board Dialog ──────────────────────────────────────────────────────
+// ── Terminate Dialog ──────────────────────────────────────────────────────
 function OffBoardDialog({ onClose }: { onClose: () => void }) {
   const { setStatusFor, statusOf } = useActorStatus();
   const [raw, setRaw] = useState("");
@@ -2477,20 +2404,20 @@ function OffBoardDialog({ onClose }: { onClose: () => void }) {
     setLoaded({ matched, unmatched });
   }
 
-  function confirmOffBoard() {
+  function confirmTerminate() {
     if (!loaded || loaded.matched.length === 0) return;
-    setStatusFor(loaded.matched.map((a) => a.id), "Off Board");
+    setStatusFor(loaded.matched.map((a) => a.id), "Terminated");
     onClose();
   }
 
-  const toOffBoard = loaded?.matched.filter((a) => statusOf(a) !== "Off Board") ?? [];
+  const toTerminate = loaded?.matched.filter((a) => statusOf(a) !== "Terminated") ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Off Board Performers</h2>
+            <h2 className="font-semibold text-gray-900">Terminate Performers</h2>
             <p className="text-xs text-gray-400 mt-0.5">Paste one or more SSOs (space, comma, or new line separated) then confirm.</p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X className="w-5 h-5" /></button>
@@ -2548,9 +2475,9 @@ function OffBoardDialog({ onClose }: { onClose: () => void }) {
             </div>
             <div className="flex justify-between gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
               <button onClick={() => setLoaded(null)} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors">Back</button>
-              <button onClick={confirmOffBoard} disabled={toOffBoard.length === 0}
+              <button onClick={confirmTerminate} disabled={toTerminate.length === 0}
                 className="px-5 py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 disabled:opacity-40 transition-colors">
-                Confirm Off Board {toOffBoard.length > 0 ? `(${toOffBoard.length})` : ""}
+                Confirm Terminate {toTerminate.length > 0 ? `(${toTerminate.length})` : ""}
               </button>
             </div>
           </>
@@ -2573,8 +2500,8 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
   const [query, setQuery] = useState("");
   const [castType, setCastType] = useState<"home" | "swing">(defaultRoleType);
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  // Pool: unassigned performers + those whose home show ≠ this show. Inactive
-  // performers are filtered out since they shouldn't be re-cast.
+  const [homeConflictConfirm, setHomeConflictConfirm] = useState<{ count: number; ids: number[] } | null>(null);
+
   const pool = useMemo(() => {
     const list = PERFORMERS.filter((p) => (p.status ?? "Employed") === "Employed");
     if (!query) return list.slice(0, 60);
@@ -2588,6 +2515,21 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
       if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
+  }
+
+  function handleAssign() {
+    const ids = Array.from(picked);
+    if (castType === "home") {
+      const withHome = ids.filter((id) => {
+        const p = PERFORMERS.find((x) => x.id === id);
+        return !!p?.homeShow;
+      });
+      if (withHome.length > 0) {
+        setHomeConflictConfirm({ count: withHome.length, ids });
+        return;
+      }
+    }
+    onSubmit(ids, castType);
   }
 
   const title = `Assign Performers — ${show.name} / ${role.name}`;
@@ -2613,6 +2555,7 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
           <ul className="divide-y divide-gray-50">
             {pool.map((p) => {
               const on = picked.has(p.id);
+              const hasHome = !!p.homeShow;
               return (
                 <li key={p.id} className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${on ? "bg-brand-50/40" : "hover:bg-gray-50"}`}
                   onClick={() => togglePick(p.id)}>
@@ -2622,7 +2565,9 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
                     <p className="text-xs font-medium text-gray-800 truncate">{p.name}</p>
                     <p className="text-[10px] text-gray-400 font-mono">{p.ssoId}</p>
                   </div>
-                  <span className="text-[10px] text-gray-400 truncate">{p.homeShow ? `${p.homeShow}/${p.homeRole}` : "Unassigned"}</span>
+                  <span className={`text-[10px] truncate ${hasHome && castType === "home" ? "text-amber-500" : "text-gray-400"}`}>
+                    {p.homeShow ? `${p.homeShow}/${p.homeRole}` : "Unassigned"}
+                  </span>
                 </li>
               );
             })}
@@ -2635,6 +2580,15 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
 
   return (
     <>
+      {homeConflictConfirm && (
+        <ConfirmDialog
+          title="Override Existing Home Role"
+          message={`${homeConflictConfirm.count} selected performer${homeConflictConfirm.count === 1 ? " already has" : "s already have"} an active Home Show & Role. Assigning Home Cast here will replace their existing home assignment. Continue?`}
+          confirmLabel="Assign Anyway"
+          onConfirm={() => { setHomeConflictConfirm(null); onSubmit(homeConflictConfirm.ids, castType); }}
+          onCancel={() => setHomeConflictConfirm(null)}
+        />
+      )}
       <div className="hidden md:flex fixed inset-0 z-50 items-center justify-center bg-black/40 p-4" onClick={onClose}>
         <div className="bg-white rounded-2xl shadow-2xl w-[92vw] max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100">
@@ -2644,7 +2598,7 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
           <div className="px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto">{body}</div>
           <div className="flex justify-end gap-2 px-5 sm:px-6 pb-5 pt-3 border-t border-gray-50">
             <button onClick={onClose} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-            <button onClick={() => onSubmit(Array.from(picked), castType)} disabled={picked.size === 0}
+            <button onClick={handleAssign} disabled={picked.size === 0}
               className="px-5 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">
               Assign {picked.size > 0 ? `(${picked.size})` : ""}
             </button>
@@ -2656,7 +2610,7 @@ function AssignPerformersDialog({ show, role, defaultRoleType, onClose, onSubmit
           footer={
             <div className="flex gap-2">
               <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
-              <button onClick={() => onSubmit(Array.from(picked), castType)} disabled={picked.size === 0}
+              <button onClick={handleAssign} disabled={picked.size === 0}
                 className="flex-1 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-medium disabled:opacity-40">
                 Assign {picked.size > 0 ? `(${picked.size})` : ""}
               </button>
@@ -2713,9 +2667,9 @@ function PerformerCard({ actor, onOpen }: {
 
 // ── Data Ops Menu ─────────────────────────────────────────────────────────
 
-function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportSwing, onImportHeadshot }: {
+function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportShowRole, onImportHeadshot }: {
   onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
-  onImportEvent: () => void; onImportSwing: () => void; onImportHeadshot: () => void;
+  onImportEvent: () => void; onImportShowRole: () => void; onImportHeadshot: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const item = (label: string, icon: React.ReactNode, fn: () => void) => (
@@ -2737,7 +2691,7 @@ function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso, onImport
             {item("Import Performers", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportPerformers)}
             {item("Update Basic Info", <Upload className="w-3.5 h-3.5 text-gray-400" />, onUpdateBasic)}
             {item("Import Event Experience", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportEvent)}
-            {item("Import Swing Role", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportSwing)}
+            {item("Import Show & Role", <Upload className="w-3.5 h-3.5 text-gray-400" />, onImportShowRole)}
             {item("Import Headshots", <Camera className="w-3.5 h-3.5 text-gray-400" />, onImportHeadshot)}
             <div className="my-1 border-t border-gray-100" />
             {item("Replace SSO", <Pencil className="w-3.5 h-3.5 text-gray-400" />, onReplaceSso)}
@@ -2751,7 +2705,7 @@ function DataOpsMenu({ onImportPerformers, onUpdateBasic, onReplaceSso, onImport
 // ── Card View ──────────────────────────────────────────────────────────────
 
 function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPerformers, onTerminate, showUnassigned, onOpenActor,
-  onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportSwing, onImportHeadshot,
+  onImportPerformers, onUpdateBasic, onReplaceSso, onImportEvent, onImportShowRole, onImportHeadshot,
 }: {
   selectedShow: Show | null; selectedRole: Role | null;
   castTab: "home" | "swing"; setCastTab: (t: "home" | "swing") => void;
@@ -2760,7 +2714,7 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
   showUnassigned: boolean;
   onOpenActor: (id: number) => void;
   onImportPerformers: () => void; onUpdateBasic: () => void; onReplaceSso: () => void;
-  onImportEvent: () => void; onImportSwing: () => void; onImportHeadshot: () => void;
+  onImportEvent: () => void; onImportShowRole: () => void; onImportHeadshot: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
@@ -2796,9 +2750,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />Off Board
+                <UserX className="w-4 h-4" />Terminate
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportShowRole={onImportShowRole} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
           {showFilter && (
@@ -2861,9 +2815,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />Off Board
+                <UserX className="w-4 h-4" />Terminate
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportShowRole={onImportShowRole} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
           {showFilter && (
@@ -2941,9 +2895,9 @@ function CardView({ selectedShow, selectedRole, castTab, setCastTab, onAssignPer
               </button>
               <button onClick={onTerminate}
                 className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-medium hover:bg-rose-50 transition-colors">
-                <UserX className="w-4 h-4" />Off Board
+                <UserX className="w-4 h-4" />Terminate
               </button>
-              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportSwing={onImportSwing} onImportHeadshot={onImportHeadshot} />
+              <DataOpsMenu onImportPerformers={onImportPerformers} onUpdateBasic={onUpdateBasic} onReplaceSso={onReplaceSso} onImportEvent={onImportEvent} onImportShowRole={onImportShowRole} onImportHeadshot={onImportHeadshot} />
             </div>
           </div>
 
@@ -3160,7 +3114,7 @@ export default function CastingBookPage() {
   const [assignPerformersOpen, setAssignPerformersOpen] = useState(false);
   const [offBoardOpen, setOffBoardOpen] = useState(false);
   // Data Ops modals (PC-only): performer import, basic-info update, replace SSO.
-  const [importModal, setImportModal] = useState<null | "performers" | "updateBasic" | "sso" | "event" | "swing" | "headshot">(null);
+  const [importModal, setImportModal] = useState<null | "performers" | "updateBasic" | "sso" | "event" | "showRole" | "headshot">(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ActorStatus>>({});
 
@@ -3295,7 +3249,7 @@ export default function CastingBookPage() {
               onUpdateBasic={() => setImportModal("updateBasic")}
               onReplaceSso={() => setImportModal("sso")}
               onImportEvent={() => setImportModal("event")}
-              onImportSwing={() => setImportModal("swing")}
+              onImportShowRole={() => setImportModal("showRole")}
               onImportHeadshot={() => setImportModal("headshot")}
             />
         </div>
@@ -3325,7 +3279,7 @@ export default function CastingBookPage() {
       {importModal === "updateBasic" && <UpdateBasicInfoModal onClose={() => setImportModal(null)} />}
       {importModal === "sso" && <SsoReplacementModal onClose={() => setImportModal(null)} />}
       {importModal === "event" && <ImportEventExperienceModal onClose={() => setImportModal(null)} />}
-      {importModal === "swing" && <ImportSwingRoleModal onClose={() => setImportModal(null)} />}
+      {importModal === "showRole" && <ImportShowRoleModal onClose={() => setImportModal(null)} />}
       {importModal === "headshot" && <ImportHeadshotModal onClose={() => setImportModal(null)} />}
     </div>
     </StatusCtx.Provider>
